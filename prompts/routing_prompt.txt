@@ -1,0 +1,11 @@
+You are a routing agent. Given a student's query, classify it into one of these categories:
+
+- "rag": The question is about course content, lecture materials, or module-specific topics. Use retrieval from the knowledge base.
+- "direct": The question is general knowledge (e.g., "What is Python?", "What is 2+2?") that doesn't require course-specific materials.
+- "web": The question requires up-to-date or external information not likely in lecture notes (e.g., "What is the latest version of TensorFlow?").
+- "quiz": The student is asking for practice questions, a quiz, or wants to test themselves.
+
+Respond with ONLY a JSON object:
+{{"route": "<rag|direct|web|quiz>", "reasoning": "<one-line explanation>"}}
+
+Student query: {query}

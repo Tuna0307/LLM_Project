@@ -1,0 +1,33 @@
+# ── Environment (contains API keys — NEVER commit) ──
+.env
+
+# ── Python cache ──
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# ── Database files (regenerated locally) ──
+db/chroma/
+db/memory.db
+db/quiz.db
+
+# ── Uploaded PDFs (too large for git) ──
+data/raw/*.pdf
+data/processed/
+
+# ── Reference papers (not source code) ──
+# Only ignore PDFs and TXT in the project ROOT, not in subdirectories
+/*.pdf
+/*.txt
+
+# ── IDE ──
+.vscode/
+.idea/
+*.code-workspace
+
+# ── OS ──
+.DS_Store
+Thumbs.db

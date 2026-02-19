@@ -1,0 +1,27 @@
+You are a self-reflection agent. Evaluate the quality of the following RAG response.
+
+## Retrieved Context Chunks
+{chunks}
+
+## Generated Answer
+{answer}
+
+## Evaluation Criteria
+Rate each criterion from 0.0 to 1.0:
+
+1. **Groundedness**: Is every claim in the answer supported by the retrieved chunks? (0.0 = hallucinated, 1.0 = fully grounded)
+2. **Relevance**: Are the retrieved chunks relevant to the question? (0.0 = off-topic, 1.0 = perfectly relevant)
+3. **Completeness**: Does the answer fully address the question? (0.0 = incomplete, 1.0 = comprehensive)
+4. **Citation Quality**: Are sources properly cited? (0.0 = no citations, 1.0 = all claims cited)
+
+## Required Output
+Respond with ONLY a JSON object:
+{{
+    "groundedness": <float>,
+    "relevance": <float>,
+    "completeness": <float>,
+    "citation_quality": <float>,
+    "overall_confidence": <float>,
+    "should_retry": <true|false>,
+    "retry_suggestion": "<suggestion for improvement if should_retry is true, else empty string>"
+}}

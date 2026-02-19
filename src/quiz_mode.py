@@ -1,0 +1,334 @@
+"""
+quiz_mode.py - Exam Mode with Question Generation and HITL Validation.
+
+Handles:
+- Generating practice questions from lecture material
+- HITL validation pipeline (pending → accepted/rejected)
+- Question bank management via SQLite
+
+Author: Delvin (Feature Engineering)
+"""
+import os
+import json
+import sqlite3
+from datetime import datetime
+from typing import Optional
+
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.documents import Document
+
+from src.retriever import hybrid_retrieve
+from src.citations import extract_citation_for_quiz
+import config
+
+
+# ── Database Setup ──────────────────────────────────────────────────────────
+
+def _get_quiz_connection() -> sqlite3.Connection:
+    """Get a SQLite connection for the quiz database."""
+    os.makedirs(os.path.dirname(config.QUIZ_DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(config.QUIZ_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_quiz_db():
+    """Initialize the quiz database tables."""
+    conn = _get_quiz_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            question TEXT NOT NULL,
+            options TEXT,
+            correct_answer TEXT NOT NULL,
+            explanation TEXT NOT NULL,
+            difficulty TEXT DEFAULT 'medium',
+            source_doc TEXT,
+            source_page INTEGER,
+            topic TEXT,
+            status TEXT DEFAULT 'pending',
+            admin_notes TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS quiz_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            question_id INTEGER,
+            user_answer TEXT,
+            is_correct BOOLEAN,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (question_id) REFERENCES questions(id)
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+# ── Question Generation ─────────────────────────────────────────────────────
+
+def generate_questions(
+    topic: Optional[str] = None,
+    num_questions: int = None,
+    filters: Optional[dict] = None,
+) -> list[dict]:
+    """
+    Generate practice questions from lecture materials.
+
+    Args:
+        topic: Optional topic to focus on.
+        num_questions: Number of questions to generate.
+        filters: Optional metadata filters for retrieval.
+
+    Returns:
+        List of question dicts.
+    """
+    if num_questions is None:
+        num_questions = config.QUIZ_QUESTIONS_PER_BATCH
+
+    # Retrieve relevant context
+    search_query = topic if topic else "key concepts and important topics"
+    chunks = hybrid_retrieve(search_query, k=8, filters=filters)
+
+    if not chunks:
+        return []
+
+    # Build context from chunks
+    context_text = "\n\n---\n\n".join([doc.page_content for doc in chunks])
+
+    # Load the quiz generation prompt
+    prompt_path = os.path.join(config.PROMPTS_DIR, "quiz_prompt.txt")
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        prompt_template = f.read()
+
+    prompt = prompt_template.format(
+        num_questions=num_questions,
+        context=context_text,
+        topic=topic or "All topics from the provided context",
+    )
+
+    # Generate questions
+    llm = ChatGoogleGenerativeAI(
+        model=config.LLM_MODEL,
+        temperature=0.5,  # Slightly higher temp for variety
+        max_output_tokens=2048,
+        google_api_key=config.GOOGLE_API_KEY,
+    )
+
+    response = llm.invoke(prompt)
+
+    try:
+        # Parse the JSON response
+        content = response.content.strip()
+        # Handle markdown code blocks
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        questions = json.loads(content)
+
+        if isinstance(questions, list):
+            # Also fill in citation from retrieval metadata if missing
+            for q in questions:
+                if not q.get("source_doc"):
+                    citation = extract_citation_for_quiz(chunks[0].metadata)
+                    q["source_doc"] = citation["source_doc"]
+                    q["source_page"] = citation["source_page"]
+
+            return questions
+    except (json.JSONDecodeError, AttributeError) as e:
+        print(f"❌ Failed to parse quiz questions: {e}")
+
+    return []
+
+
+def save_generated_questions(questions: list[dict]) -> int:
+    """
+    Save generated questions to the database with 'pending' status.
+
+    Returns:
+        Number of questions saved.
+    """
+    init_quiz_db()
+    conn = _get_quiz_connection()
+    now = datetime.now().isoformat()
+    saved = 0
+
+    for q in questions:
+        try:
+            conn.execute(
+                """INSERT INTO questions 
+                   (type, question, options, correct_answer, explanation, 
+                    difficulty, source_doc, source_page, topic, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                (
+                    q.get("type", "mcq"),
+                    q["question"],
+                    json.dumps(q.get("options")) if q.get("options") else None,
+                    q["correct_answer"],
+                    q.get("explanation", ""),
+                    q.get("difficulty", "medium"),
+                    q.get("source_doc", ""),
+                    q.get("source_page", 0),
+                    q.get("topic", ""),
+                    now,
+                ),
+            )
+            saved += 1
+        except Exception as e:
+            print(f"❌ Error saving question: {e}")
+
+    conn.commit()
+    conn.close()
+    return saved
+
+
+# ── HITL Validation ─────────────────────────────────────────────────────────
+
+def get_pending_questions() -> list[dict]:
+    """Get all questions pending admin review."""
+    init_quiz_db()
+    conn = _get_quiz_connection()
+    rows = conn.execute(
+        "SELECT * FROM questions WHERE status = 'pending' ORDER BY created_at DESC"
+    ).fetchall()
+    conn.close()
+
+    return [dict(row) for row in rows]
+
+
+def review_question(question_id: int, action: str, admin_notes: str = "", edited_data: Optional[dict] = None):
+    """
+    Review a pending question: accept, reject, or edit.
+
+    Args:
+        question_id: ID of the question.
+        action: 'accept', 'reject', or 'edit'.
+        admin_notes: Optional notes from the admin.
+        edited_data: If action is 'edit', dict with updated fields.
+    """
+    init_quiz_db()
+    conn = _get_quiz_connection()
+    now = datetime.now().isoformat()
+
+    if action == "accept":
+        conn.execute(
+            "UPDATE questions SET status = 'accepted', admin_notes = ?, reviewed_at = ? WHERE id = ?",
+            (admin_notes, now, question_id),
+        )
+    elif action == "reject":
+        conn.execute(
+            "UPDATE questions SET status = 'rejected', admin_notes = ?, reviewed_at = ? WHERE id = ?",
+            (admin_notes, now, question_id),
+        )
+    elif action == "edit" and edited_data:
+        # Update the question with edited data
+        update_fields = []
+        update_values = []
+        for key in ["question", "correct_answer", "explanation", "difficulty"]:
+            if key in edited_data:
+                update_fields.append(f"{key} = ?")
+                update_values.append(edited_data[key])
+        if "options" in edited_data:
+            update_fields.append("options = ?")
+            update_values.append(json.dumps(edited_data["options"]))
+
+        update_fields.extend(["status = ?", "admin_notes = ?", "reviewed_at = ?"])
+        update_values.extend(["accepted", admin_notes, now])
+        update_values.append(question_id)
+
+        conn.execute(
+            f"UPDATE questions SET {', '.join(update_fields)} WHERE id = ?",
+            update_values,
+        )
+
+    conn.commit()
+    conn.close()
+
+
+# ── Question Bank Access ────────────────────────────────────────────────────
+
+def get_accepted_questions(
+    topic: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    limit: int = 10,
+) -> list[dict]:
+    """Get accepted questions for student-facing Exam Mode."""
+    init_quiz_db()
+    conn = _get_quiz_connection()
+
+    query = "SELECT * FROM questions WHERE status = 'accepted'"
+    params = []
+
+    if topic:
+        query += " AND topic = ?"
+        params.append(topic)
+
+    if difficulty:
+        query += " AND difficulty = ?"
+        params.append(difficulty)
+
+    query += " ORDER BY RANDOM() LIMIT ?"
+    params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    questions = []
+    for row in rows:
+        q = dict(row)
+        # Parse options JSON
+        if q.get("options"):
+            try:
+                q["options"] = json.loads(q["options"])
+            except json.JSONDecodeError:
+                q["options"] = None
+        questions.append(q)
+
+    return questions
+
+
+def record_attempt(session_id: str, question_id: int, user_answer: str, is_correct: bool):
+    """Record a student's quiz attempt."""
+    init_quiz_db()
+    conn = _get_quiz_connection()
+    now = datetime.now().isoformat()
+
+    conn.execute(
+        "INSERT INTO quiz_attempts (session_id, question_id, user_answer, is_correct, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (session_id, question_id, user_answer, is_correct, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_quiz_stats() -> dict:
+    """Get overall quiz statistics for the admin dashboard."""
+    init_quiz_db()
+    conn = _get_quiz_connection()
+
+    total = conn.execute("SELECT COUNT(*) as cnt FROM questions").fetchone()["cnt"]
+    pending = conn.execute("SELECT COUNT(*) as cnt FROM questions WHERE status = 'pending'").fetchone()["cnt"]
+    accepted = conn.execute("SELECT COUNT(*) as cnt FROM questions WHERE status = 'accepted'").fetchone()["cnt"]
+    rejected = conn.execute("SELECT COUNT(*) as cnt FROM questions WHERE status = 'rejected'").fetchone()["cnt"]
+
+    # Attempt stats
+    total_attempts = conn.execute("SELECT COUNT(*) as cnt FROM quiz_attempts").fetchone()["cnt"]
+    correct_attempts = conn.execute("SELECT COUNT(*) as cnt FROM quiz_attempts WHERE is_correct = 1").fetchone()["cnt"]
+
+    conn.close()
+
+    return {
+        "total_questions": total,
+        "pending": pending,
+        "accepted": accepted,
+        "rejected": rejected,
+        "total_attempts": total_attempts,
+        "correct_attempts": correct_attempts,
+        "accuracy": (correct_attempts / total_attempts * 100) if total_attempts > 0 else 0,
+    }
