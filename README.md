@@ -222,7 +222,3 @@ The upload pipeline includes **automatic rate limiting** (small batches with 15s
 | Delvin | Feature Engineering | `quiz_mode.py`, `citations.py` |
 
 ---
-
-## 📄 License
-
-This project is developed for educational purposes as part of the AAI3008 module at Singapore Institute of Technology (SIT).
