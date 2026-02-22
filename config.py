@@ -45,7 +45,7 @@ SUMMARY_INTERVAL = 5               # Summarize conversation every N turns
 
 # ── ChromaDB Settings ────────────────────────────────────────────────────────
 CHROMA_PERSIST_DIR = os.path.join("db", "chroma")
-DEFAULT_COLLECTION = "sit_notes"
+DEFAULT_COLLECTION = "course_notes"
 
 # ── Quiz Settings ────────────────────────────────────────────────────────────
 QUIZ_QUESTIONS_PER_BATCH = 5       # Number of questions generated at once

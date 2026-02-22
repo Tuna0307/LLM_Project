@@ -223,9 +223,17 @@ def rag_answer(
                 best_confidence = confidence
                 best_chunks = chunks
         else:
-            # Last iteration, use this answer
-            best_answer = answer
-            best_chunks = chunks
+            # Last iteration — still reflect so confidence matches the returned answer
+            reflection = reflect_on_answer(query, answer, chunks)
+            confidence = reflection.get("overall_confidence", 0.5)
+            if confidence > best_confidence:
+                best_answer = answer
+                best_confidence = confidence
+                best_chunks = chunks
+            elif not best_answer:
+                # Fallback: no prior best exists, use this answer regardless
+                best_answer = answer
+                best_chunks = chunks
 
     # Return best answer found
     return {

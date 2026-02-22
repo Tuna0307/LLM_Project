@@ -11,22 +11,26 @@ env/
 
 # ── Database files (regenerated locally) ──
 db/chroma/
-db/memory.db
-db/quiz.db
+db/*.db
+*.db
 
 # ── Uploaded PDFs (too large for git) ──
 data/raw/*.pdf
 data/processed/
 
 # ── Reference papers (not source code) ──
-# Only ignore PDFs and TXT in the project ROOT, not in subdirectories
+# Only ignore PDFs in the project root, not requirements.txt or README
 /*.pdf
-/*.txt
 
 # ── IDE ──
 .vscode/
 .idea/
 *.code-workspace
+
+# ── Frontend build / dependencies ──
+node_modules/
+frontend/dist/
+frontend/.env
 
 # ── OS ──
 .DS_Store

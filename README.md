@@ -11,9 +11,10 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 | Feature | Description |
 |---------|-------------|
 | 📚 **Study Chat** | Ask questions grounded in your lecture materials with source citations |
+| � **Chat History** | Browse, resume, and delete past study conversations |
 | 📝 **Exam Mode** | Practice with AI-generated MCQ, True/False, and Short Answer questions |
 | 📤 **Upload Notes** | Upload PDF lecture slides, tutorials, and lab manuals |
-| 🔧 **Admin Dashboard** | Human-in-the-Loop (HITL) question validation and system management |
+| 🔧 **Settings** | Human-in-the-Loop (HITL) question validation and system management |
 | 🤖 **Agent Routing** | Automatically routes queries to RAG, direct LLM, or web search |
 | 🔄 **Self-Reflection** | Plan → Act → Observe → Reflect → Revise loop for answer quality |
 | 🧠 **Conversation Memory** | Remembers past discussions across sessions with SQLite |
@@ -26,35 +27,37 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Streamlit Frontend                        │
+│                    React Frontend (Vite)                     │
 │  ┌───────────┬───────────┬──────────────┬────────────────┐  │
-│  │Study Chat │ Exam Mode │Upload Notes  │Admin Dashboard │  │
+│  │Study Chat │ Exam Mode │Upload Notes  │    Settings    │  │
 │  └─────┬─────┴─────┬─────┴──────┬───────┴───────┬────────┘  │
 │        │           │            │               │            │
 ├────────┼───────────┼────────────┼───────────────┼────────────┤
 │        ▼           ▼            ▼               ▼            │
-│   ┌─────────┐ ┌─────────┐ ┌──────────┐  ┌───────────────┐  │
-│   │  Agent   │ │Quiz Mode│ │  Ingest  │  │  Quiz Mode    │  │
-│   │ Router + │ │(Student)│ │ Pipeline │  │  (Admin HITL) │  │
-│   │Reflection│ │         │ │          │  │               │  │
-│   └────┬─────┘ └─────────┘ └────┬─────┘  └───────────────┘  │
-│        │                        │                            │
-│   ┌────▼────────────────────────▼─────┐                     │
-│   │         Hybrid Retriever          │                     │
-│   │  Dense (ChromaDB) + Sparse (BM25) │                     │
-│   │      + Cross-Encoder Reranker     │                     │
-│   └────────────┬──────────────────────┘                     │
-│                │                                             │
-│   ┌────────────▼──────────────────────┐                     │
-│   │       Google Gemini API           │                     │
-│   │  LLM: gemini-2.0-flash           │                     │
-│   │  Embeddings: gemini-embedding-001 │                     │
-│   └───────────────────────────────────┘                     │
-│                                                              │
-│   ┌──────────────────────────────────┐                      │
-│   │         Storage Layer            │                      │
-│   │  ChromaDB │ SQLite (Memory+Quiz) │                      │
-│   └──────────────────────────────────┘                      │
+│   ┌──────────────────────────────────────────────────┐      │
+│   │                 FastAPI Backend                  │      │
+│   │  ┌─────────┐ ┌─────────┐ ┌──────────┐  ┌───────┐ │      │
+│   │  │  Agent  │ │Quiz Mode│ │  Ingest  │  │ Admin │ │      │
+│   │  │ Router  │ │(Student)│ │ Pipeline │  │ HITL  │ │      │
+│   │  └────┬────┘ └─────────┘ └────┬─────┘  └───────┘ │      │
+│   └───────┼───────────────────────┼──────────────────┘      │
+│           │                       │                         │
+│   ┌───────▼───────────────────────▼─────┐                   │
+│   │         Hybrid Retriever            │                   │
+│   │  Dense (ChromaDB) + Sparse (BM25)   │                   │
+│   │      + Cross-Encoder Reranker       │                   │
+│   └───────────────┬─────────────────────┘                   │
+│                   │                                         │
+│   ┌───────────────▼─────────────────────┐                   │
+│   │       Google Gemini API             │                   │
+│   │  LLM: gemini-2.0-flash              │                   │
+│   │  Embeddings: gemini-embedding-001   │                   │
+│   └─────────────────────────────────────┘                   │
+│                                                             │
+│   ┌─────────────────────────────────────┐                   │
+│   │         Storage Layer               │                   │
+│   │  ChromaDB │ SQLite (Memory+Quiz)    │                   │
+│   └─────────────────────────────────────┘                   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -65,6 +68,7 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 ### Prerequisites
 
 - **Python 3.10+**
+- **Node.js 18+**
 - **Google Gemini API key** (free tier) — get one at [Google AI Studio](https://aistudio.google.com/apikey)
 
 ### 1. Clone & install dependencies
@@ -72,7 +76,14 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 ```bash
 git clone <repo-url>
 cd LLM-Project
+
+# Install Python backend dependencies
 pip install -r requirements.txt
+
+# Install Node.js frontend dependencies
+cd frontend
+npm install
+cd ..
 ```
 
 ### 2. Set up your API key
@@ -88,13 +99,24 @@ Edit `.env` and add your Google Gemini API key:
 GOOGLE_API_KEY=your-google-api-key-here
 ```
 
-### 3. Run the app
+### 3. Run the application
 
+You will need two terminal windows to run the backend and frontend separately.
+
+**Terminal 1: Start the FastAPI Backend**
 ```bash
-streamlit run app.py
+# From the root directory (activate your Python environment first)
+python -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
 ```
+The API will be available at **http://localhost:8000**.
 
-The app will open at **http://localhost:8501**.
+**Terminal 2: Start the React Frontend**
+```bash
+# From the frontend directory
+cd frontend
+npm run dev
+```
+The app will open at **http://localhost:5173**.
 
 ### 4. Upload course materials
 
@@ -102,9 +124,9 @@ Navigate to **📤 Upload Notes** and drag-and-drop your PDF lecture slides.
 
 ### 5. Start studying!
 
-- Use **📚 Study Chat** to ask questions about your materials
+- Use **📚 Study Chat** to ask questions about your materials — your conversations are saved and resumable
 - Use **📝 Exam Mode** to test yourself with AI-generated questions
-- Use **🔧 Admin Dashboard** to review/edit AI-generated questions (HITL)
+- Use **🔧 Settings** to review/edit AI-generated questions (HITL)
 
 ---
 
@@ -112,10 +134,10 @@ Navigate to **📤 Upload Notes** and drag-and-drop your PDF lecture slides.
 
 ```
 LLM Project/
-├── app.py                  # Streamlit entry point (landing page)
+├── api.py                  # FastAPI entry point (all REST endpoints)
 ├── config.py               # Central configuration (API keys, model settings)
 ├── requirements.txt        # Python dependencies
-├── .env                    # API keys (not tracked in git)
+├── .env                    # API keys (NOT tracked in git — copy from .env.example)
 ├── .env.example            # Template for .env
 │
 ├── src/                    # Core backend modules
@@ -128,24 +150,28 @@ LLM Project/
 │   ├── quiz_mode.py        # Quiz generation + HITL validation pipeline
 │   └── citations.py        # Source citation formatting
 │
-├── pages/                  # Streamlit multi-page app
-│   ├── 1_📚_Study_Chat.py  # RAG-powered Q&A with citations
-│   ├── 2_📝_Exam_Mode.py   # Interactive quiz interface
-│   ├── 3_📤_Upload_Notes.py # PDF upload & indexing
-│   └── 4_🔧_Admin_Dashboard.py # HITL question management
+├── frontend/               # React + Vite frontend
+│   ├── package.json        # Node.js dependencies
+│   ├── vite.config.ts      # Vite build config
+│   └── src/
+│       └── app/
+│           ├── App.tsx     # Root component
+│           ├── routes.ts   # React Router routes
+│           ├── pages/      # Chat, Exam, Upload, Admin, Home
+│           ├── layouts/    # DashboardLayout (sidebar)
+│           └── components/ # shadcn/ui component library
 │
 ├── prompts/                # LLM prompt templates
 │   ├── system_prompt.txt   # Main system persona
 │   ├── routing_prompt.txt  # Query classification
 │   ├── reflection_prompt.txt # Answer self-evaluation
-│   ├── quiz_prompt.txt     # Question generation
-│   └── citation_prompt.txt # Citation formatting
+│   └── quiz_prompt.txt     # Question generation
 │
-├── data/                   # Data directories
-│   ├── raw/                # Uploaded PDFs
-│   └── processed/          # Processed chunks (optional cache)
+├── data/                   # Data directories (PDFs not tracked in git)
+│   ├── raw/                # Drop PDF lecture slides here for CLI ingestion
+│   └── processed/          # Processed chunks (auto-generated)
 │
-└── db/                     # Persistent storage
+└── db/                     # Persistent storage (auto-created on first run)
     ├── chroma/             # ChromaDB vector database
     ├── memory.db           # Conversation memory (SQLite)
     └── quiz.db             # Question bank (SQLite)
@@ -163,7 +189,8 @@ LLM Project/
 | **Vector Store** | ChromaDB |
 | **Sparse Search** | BM25 (rank-bm25) |
 | **Reranker** | cross-encoder/ms-marco-MiniLM-L-6-v2 |
-| **Frontend** | Streamlit |
+| **Frontend** | React 18 + Vite + shadcn/ui + Tailwind CSS |
+| **Backend API** | FastAPI + Uvicorn |
 | **Memory/Quiz DB** | SQLite |
 | **PDF Processing** | PyPDF |
 
@@ -192,9 +219,9 @@ This project addresses the following advanced directions suggested by the course
 
 1. **Multi-Agent Routing** — Agent router classifies queries and dispatches to specialized handlers (RAG, direct, web search, quiz)
 2. **Self-Reflection Loop** — Plan → Act → Observe → Reflect → Revise cycle evaluates answer quality and retries when confidence is low
-3. **Human-in-the-Loop (HITL)** — Admin dashboard enables teachers to review, edit, accept, or reject AI-generated quiz questions
+3. **Human-in-the-Loop (HITL)** — Settings page enables teachers to review, edit, accept, or reject AI-generated quiz questions
 4. **Hybrid Retrieval with Multi-Hop** — Combines dense and sparse retrieval with Reciprocal Rank Fusion, cross-encoder reranking, and multi-hop sub-query decomposition
-5. **Long-Term Memory** — SQLite-backed conversation memory with periodic LLM-based summarization across sessions
+5. **Long-Term Memory** — SQLite-backed conversation memory with periodic LLM-based summarization across sessions; full chat history browsable from the UI
 
 ---
 
@@ -218,7 +245,7 @@ The upload pipeline includes **automatic rate limiting** (small batches with 15s
 | Wei Xuan | Data Infrastructure | `ingest.py` |
 | Jay | Storage & Embeddings | `vectorstore.py` |
 | Shunren | Core RAG Logic | `retriever.py`, `agent.py` |
-| Praveen | Frontend Interface | `app.py`, `pages/` |
+| Praveen | Frontend Interface | `frontend/src/` |
 | Delvin | Feature Engineering | `quiz_mode.py`, `citations.py` |
 
 ---

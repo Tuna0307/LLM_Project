@@ -212,3 +212,67 @@ def format_chat_history(messages: list[dict], max_turns: int = 5) -> str:
         formatted += f"{role}: {msg['content']}\n\n"
 
     return formatted.strip()
+
+
+def get_all_sessions(limit: int = 30) -> list[dict]:
+    """
+    Return all sessions that have at least one message, ordered by most recent.
+    Includes message count and the first user message as a preview.
+    """
+    init_memory_db()
+    conn = _get_connection()
+    rows = conn.execute(
+        """
+        SELECT s.session_id, s.created_at, s.updated_at, s.summary,
+               COUNT(m.id) as message_count
+        FROM sessions s
+        LEFT JOIN messages m ON s.session_id = m.session_id
+        GROUP BY s.session_id
+        HAVING message_count > 0
+        ORDER BY s.updated_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+
+    sessions = []
+    for row in rows:
+        # Get first user message as a preview title
+        first_user = conn.execute(
+            "SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
+            (row["session_id"],),
+        ).fetchone()
+        preview = first_user["content"] if first_user else "(no messages)"
+        sessions.append({
+            "session_id": row["session_id"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "summary": row["summary"] or "",
+            "message_count": row["message_count"],
+            "preview": preview,
+        })
+
+    conn.close()
+    return sessions
+
+
+def get_session_messages_full(session_id: str) -> list[dict]:
+    """Get all messages for a session with timestamps, in chronological order."""
+    init_memory_db()
+    conn = _get_connection()
+    rows = conn.execute(
+        "SELECT role, content, timestamp FROM messages WHERE session_id = ? ORDER BY id ASC",
+        (session_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def delete_session(session_id: str):
+    """Permanently delete a session and all its messages."""
+    init_memory_db()
+    conn = _get_connection()
+    conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+    conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
+    conn.commit()
+    conn.close()

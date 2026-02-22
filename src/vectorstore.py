@@ -203,6 +203,73 @@ def get_collection_stats(collection_name: Optional[str] = None) -> dict:
         }
 
 
+def get_uploaded_documents(collection_name: Optional[str] = None) -> list:
+    """
+    Return a deduplicated list of source files that have been indexed,
+    along with their metadata and chunk counts.
+
+    Returns:
+        List of dicts: [{source_file, topic, doc_type, chunk_count}, ...]
+    """
+    if collection_name is None:
+        collection_name = config.DEFAULT_COLLECTION
+
+    client = chromadb.PersistentClient(path=config.CHROMA_PERSIST_DIR)
+    try:
+        collection = client.get_collection(collection_name)
+        result = collection.get(include=["metadatas"])
+        docs: dict = {}
+        for meta in result.get("metadatas", []):
+            if not meta:
+                continue
+            key = meta.get("source_file", "Unknown")
+            if key not in docs:
+                docs[key] = {
+                    "source_file": key,
+                    "topic": meta.get("topic", ""),
+                    "doc_type": meta.get("doc_type", "lecture"),
+                    "chunk_count": 0,
+                }
+            docs[key]["chunk_count"] += 1
+        return sorted(docs.values(), key=lambda d: d["source_file"])
+    except Exception:
+        return []
+
+
+def get_document_metadata_values(collection_name: Optional[str] = None) -> dict:
+    """
+    Get unique week and topic metadata values from all indexed documents.
+    Used by the frontend to build dynamic filter dropdowns.
+
+    Returns:
+        Dictionary with sorted lists: {"weeks": [1, 2, ...], "topics": ["Intro", ...]}
+    """
+    if collection_name is None:
+        collection_name = config.DEFAULT_COLLECTION
+
+    client = chromadb.PersistentClient(path=config.CHROMA_PERSIST_DIR)
+    try:
+        collection = client.get_collection(collection_name)
+        result = collection.get(include=["metadatas"])
+        weeks: set = set()
+        topics: set = set()
+        for meta in result.get("metadatas", []):
+            if meta:
+                if "week" in meta and meta["week"] is not None:
+                    try:
+                        weeks.add(int(meta["week"]))
+                    except (ValueError, TypeError):
+                        pass
+                if "topic" in meta and meta["topic"]:
+                    topics.add(str(meta["topic"]))
+        return {
+            "weeks": sorted(list(weeks)),
+            "topics": sorted(list(topics)),
+        }
+    except Exception:
+        return {"weeks": [], "topics": []}
+
+
 def list_collections() -> list[str]:
     """List all available collections in the vector store."""
     client = chromadb.PersistentClient(path=config.CHROMA_PERSIST_DIR)
