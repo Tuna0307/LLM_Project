@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "react-router";
+import { useNotebook } from "../context/NotebookContext";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -52,6 +53,7 @@ const MOCK_MESSAGES: Message[] = [
 
 export default function Chat() {
   const location = useLocation();
+  const { notebook } = useNotebook();
   const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -65,7 +67,7 @@ export default function Chat() {
   useEffect(() => {
     const fetchMetadata = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/documents/metadata");
+        const res = await fetch("http://localhost:8001/api/documents/metadata");
         if (res.ok) {
           const data = await res.json();
           setAvailableTopics(data.topics || []);
@@ -85,7 +87,10 @@ export default function Chat() {
   const fetchSessions = async () => {
     setIsLoadingSessions(true);
     try {
-      const res = await fetch("http://localhost:8000/api/sessions");
+      const url = notebook
+        ? `http://localhost:8001/api/sessions?notebook_id=${encodeURIComponent(notebook.id)}`
+        : "http://localhost:8001/api/sessions";
+      const res = await fetch(url);
       if (res.ok) setSessions(await res.json());
     } catch {
       // fail silently
@@ -94,14 +99,23 @@ export default function Chat() {
     }
   };
 
-  // On mount: restore session from localStorage and load sessions list
+  // Per-notebook localStorage key so sessions don't bleed between notebooks
+  const sessionStorageKey = notebook ? `irra_session_id_${notebook.id}` : "irra_session_id";
+
+  // On mount / notebook change: restore session from localStorage and load sessions list
   useEffect(() => {
+    // Reset to initial state when switching notebooks
+    setMessages(MOCK_MESSAGES);
+    setSessionId(null);
+    setInput("");
+    setTopicFilter("");
+
     fetchSessions();
-    const savedId = localStorage.getItem("irra_session_id");
+    const savedId = localStorage.getItem(sessionStorageKey);
     if (savedId) {
       setSessionId(savedId);
       // Load messages for the restored session
-      fetch(`http://localhost:8000/api/sessions/${savedId}/messages`)
+      fetch(`http://localhost:8001/api/sessions/${savedId}/messages`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
           if (data && data.length > 0) {
@@ -117,14 +131,14 @@ export default function Chat() {
         })
         .catch(() => {});
     }
-  }, []);
+  }, [notebook?.id]);
 
   // Persist sessionId to localStorage whenever it changes
   useEffect(() => {
     if (sessionId) {
-      localStorage.setItem("irra_session_id", sessionId);
+      localStorage.setItem(sessionStorageKey, sessionId);
     }
-  }, [sessionId]);
+  }, [sessionId, sessionStorageKey]);
 
   const handleSend = useCallback(async (overrideText?: string) => {
     const text = overrideText ?? input;
@@ -142,10 +156,12 @@ export default function Chat() {
     setIsTyping(true);
 
     try {
+      const notebookId = notebook?.id ?? null;
       const filters: any = {};
       if (topicFilter) filters.topic = topicFilter;
+      if (notebookId) filters.notebook_id = notebookId;
 
-      const response = await fetch("http://localhost:8000/api/chat", {
+      const response = await fetch("http://localhost:8001/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -153,6 +169,7 @@ export default function Chat() {
         body: JSON.stringify({
           query: userMsg.content,
           session_id: sessionId,
+          notebook_id: notebookId,
           filters: Object.keys(filters).length > 0 ? filters : null
         }),
       });
@@ -193,25 +210,22 @@ export default function Chat() {
     } finally {
       setIsTyping(false);
     }
-  }, [input, topicFilter, sessionId]);
+  }, [input, topicFilter, sessionId, notebook?.id]);
 
   // Auto-send message when navigated from Exam "Explain" button
   useEffect(() => {
     const explainMessage = (location.state as any)?.explainMessage;
-    if (explainMessage) {
-      // Clear the navigation state so refreshing doesn't re-send
-      window.history.replaceState({}, "");
-      // Small delay to let the component finish mounting
-      const timer = setTimeout(() => handleSend(explainMessage), 300);
-      return () => clearTimeout(timer);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!explainMessage) return;
+
+    window.history.replaceState({}, "", `${location.pathname}${location.search}`);
+    const timer = setTimeout(() => handleSend(explainMessage), 300);
+    return () => clearTimeout(timer);
+  }, [location.pathname, location.search, location.state, handleSend]);
 
   const handleClearHistory = async () => {
     if (sessionId) {
       try {
-        await fetch(`http://localhost:8000/api/sessions/${sessionId}`, { method: "DELETE" });
+        await fetch(`http://localhost:8001/api/sessions/${sessionId}`, { method: "DELETE" });
         setSessions(prev => prev.filter(s => s.session_id !== sessionId));
       } catch {
         // fail silently
@@ -225,7 +239,7 @@ export default function Chat() {
       metadata: { confidence: 100, route: "System" }
     }]);
     setSessionId(null);
-    localStorage.removeItem("irra_session_id");
+    localStorage.removeItem(sessionStorageKey);
   };
 
   const handleNewChat = () => {
@@ -237,13 +251,13 @@ export default function Chat() {
       metadata: { confidence: 100, route: "System" }
     }]);
     setSessionId(null);
-    localStorage.removeItem("irra_session_id");
+    localStorage.removeItem(sessionStorageKey);
   };
 
   const handleLoadSession = async (loadId: string) => {
     if (loadId === sessionId) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/sessions/${loadId}/messages`);
+      const res = await fetch(`http://localhost:8001/api/sessions/${loadId}/messages`);
       if (!res.ok) return;
       const data = await res.json();
       const restored: Message[] = data.map((m: any, i: number) => ({
@@ -255,7 +269,7 @@ export default function Chat() {
       }));
       setMessages(restored);
       setSessionId(loadId);
-      localStorage.setItem("irra_session_id", loadId);
+      localStorage.setItem(sessionStorageKey, loadId);
     } catch {
       // fail silently
     }
@@ -263,7 +277,7 @@ export default function Chat() {
 
   const handleDeleteSession = async (delId: string) => {
     try {
-      await fetch(`http://localhost:8000/api/sessions/${delId}`, { method: "DELETE" });
+      await fetch(`http://localhost:8001/api/sessions/${delId}`, { method: "DELETE" });
       setSessions(prev => prev.filter(s => s.session_id !== delId));
       if (sessionId === delId) handleNewChat();
     } catch {
@@ -423,7 +437,7 @@ export default function Chat() {
       </Card>
 
       {/* Right Sidebar */}
-      <div className="w-80 hidden xl:flex flex-col gap-4">
+      <div className="w-80 hidden xl:flex flex-col gap-4 h-[calc(100vh-8rem)]">
 
         {/* New Chat */}
         <Button
@@ -467,8 +481,8 @@ export default function Chat() {
         </Card>
 
         {/* Chat History */}
-        <Card className="bg-card border-border backdrop-blur-md flex-1 min-h-0">
-          <div className="p-4 pb-2 flex items-center justify-between">
+        <Card className="bg-card border-border backdrop-blur-md flex-1 min-h-0 flex flex-col">
+          <div className="p-4 pb-2 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <History className="h-4 w-4 text-muted-foreground" />
               <h3 className="text-xs font-semibold text-foreground uppercase tracking-wider">Chat History</h3>
@@ -480,8 +494,8 @@ export default function Chat() {
               Refresh
             </button>
           </div>
-          <CardContent className="p-0 pb-4">
-            <div className="h-56 overflow-y-auto overflow-x-hidden px-3 space-y-1">
+          <CardContent className="p-0 pb-4 flex-1 min-h-0">
+            <div className="h-full overflow-y-auto overflow-x-hidden px-3 space-y-1">
               {isLoadingSessions ? (
                 <p className="text-xs text-muted-foreground text-center py-6">Loading...</p>
               ) : sessions.length === 0 ? (

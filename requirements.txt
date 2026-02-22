@@ -32,4 +32,4 @@ python-dotenv>=1.0.0
 tiktoken>=0.7.0
 
 # TF Compatibility (required for sentence-transformers in Anaconda)
-tf-keras
+tf-keras>=2.15.0

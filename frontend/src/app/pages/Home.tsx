@@ -21,39 +21,42 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { useNotebook, getColorStyles } from "../context/NotebookContext";
 
-const FEATURES = [
+const FEATURE_DEFS = [
   {
     title: "Study Chat",
     description: "Ask questions and get instant answers sourced directly from your lecture notes.",
     icon: MessageSquare,
-    link: "/chat",
+    path: "chat",
     color: "bg-blue-500/10 text-blue-500 border-blue-500/20"
   },
   {
     title: "Exam Mode",
     description: "Generate practice quizzes to test your knowledge before the real exam.",
     icon: FileText,
-    link: "/exam",
+    path: "exam",
     color: "bg-purple-500/10 text-purple-500 border-purple-500/20"
   },
   {
     title: "Upload Notes",
     description: "Upload your PDFs, slides, and tutorials to expand the AI's knowledge base.",
     icon: UploadCloud,
-    link: "/upload",
+    path: "upload",
     color: "bg-pink-500/10 text-pink-500 border-pink-500/20"
   },
   {
     title: "Settings",
     description: "Review and approve AI-generated questions for accuracy.",
     icon: ShieldAlert,
-    link: "/settings",
+    path: "settings",
     color: "bg-amber-500/10 text-amber-500 border-amber-500/20"
   }
 ];
 
 export default function Home() {
+  const { notebook } = useNotebook();
+  const cs = notebook ? getColorStyles(notebook.color) : null;
   const [stats, setStats] = useState<any>({
     vectorstore: { count: 0 },
     quiz: { accepted: 0, pending: 0, accuracy: 0 }
@@ -61,9 +64,13 @@ export default function Home() {
   const [perfData, setPerfData] = useState<any[]>([]);
 
   useEffect(() => {
+    // Reset to zero while loading so stale numbers don't flash on notebook switch
+    setStats({ vectorstore: { count: 0 }, quiz: { accepted: 0, pending: 0, accuracy: 0 } });
+    setPerfData([]);
+    const nbParam = notebook?.id ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
     const fetchStats = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/stats");
+        const res = await fetch(`http://localhost:8001/api/stats${nbParam}`);
         if (res.ok) {
           setStats(await res.json());
         }
@@ -73,7 +80,7 @@ export default function Home() {
     };
     const fetchPerformance = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/quiz/performance?days=14");
+        const res = await fetch(`http://localhost:8001/api/quiz/performance?days=14${notebook?.id ? `&notebook_id=${encodeURIComponent(notebook.id)}` : ""}`);
         if (res.ok) {
           setPerfData(await res.json());
         }
@@ -83,7 +90,7 @@ export default function Home() {
     };
     fetchStats();
     fetchPerformance();
-  }, []);
+  }, [notebook?.id]);
 
   const STATS_DISPLAY = [
     { label: "Indexed Chunks", value: stats.vectorstore?.count || 0, icon: BookOpen, color: "text-emerald-500" },
@@ -104,10 +111,15 @@ export default function Home() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-purple-500/20 blur-[100px] rounded-full -z-10" />
         
         <h1 className="text-4xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-purple-600 via-purple-500 to-pink-500 bg-clip-text text-transparent drop-shadow-sm">
-          Welcome to IRRA
+          {notebook ? (
+            <span className="flex items-center justify-center gap-3">
+              <span>{notebook.emoji}</span>
+              <span>{notebook.name}</span>
+            </span>
+          ) : "Welcome to IRRA"}
         </h1>
         <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-          Intelligent RAG Revision Assistant — Your AI-Powered Study Buddy.
+          {notebook?.description || "Intelligent RAG Revision Assistant — Your AI-Powered Study Buddy."}
         </p>
       </motion.div>
 
@@ -158,7 +170,7 @@ export default function Home() {
               <div className="h-48 flex flex-col items-center justify-center gap-2 text-muted-foreground">
                 <FileText className="h-8 w-8 opacity-30" />
                 <p className="text-sm">No quiz attempts yet — complete an exam to see your progress here.</p>
-                <Link to="/exam" className="text-xs text-purple-500 hover:underline mt-1">Go to Exam Mode →</Link>
+                <Link to="exam" className="text-xs text-purple-500 hover:underline mt-1">Go to Exam Mode →</Link>
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
@@ -220,8 +232,8 @@ export default function Home() {
 
       {/* Features Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-8">
-        {FEATURES.map((feature, index) => (
-          <Link key={feature.title} to={feature.link} className="block group h-full">
+        {FEATURE_DEFS.map((feature, index) => (
+          <Link key={feature.title} to={feature.path} className="block group h-full">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}

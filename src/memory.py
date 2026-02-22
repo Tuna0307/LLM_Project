@@ -22,8 +22,10 @@ import config
 def _get_connection() -> sqlite3.Connection:
     """Get a SQLite connection, creating the DB if needed."""
     os.makedirs(os.path.dirname(config.MEMORY_DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(config.MEMORY_DB_PATH)
+    conn = sqlite3.connect(config.MEMORY_DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -37,9 +39,15 @@ def init_memory_db():
             session_id TEXT PRIMARY KEY,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            summary TEXT DEFAULT ''
+            summary TEXT DEFAULT '',
+            notebook_id TEXT
         )
     """)
+
+    # Migrate existing DB: add notebook_id column if it doesn't exist
+    existing_cols = [row[1] for row in cursor.execute("PRAGMA table_info(sessions)").fetchall()]
+    if "notebook_id" not in existing_cols:
+        cursor.execute("ALTER TABLE sessions ADD COLUMN notebook_id TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS messages (
@@ -56,7 +64,7 @@ def init_memory_db():
     conn.close()
 
 
-def create_session() -> str:
+def create_session(notebook_id: Optional[str] = None) -> str:
     """Create a new conversation session and return its ID."""
     init_memory_db()
     session_id = str(uuid.uuid4())
@@ -64,8 +72,8 @@ def create_session() -> str:
 
     conn = _get_connection()
     conn.execute(
-        "INSERT INTO sessions (session_id, created_at, updated_at) VALUES (?, ?, ?)",
-        (session_id, now, now),
+        "INSERT INTO sessions (session_id, created_at, updated_at, notebook_id) VALUES (?, ?, ?, ?)",
+        (session_id, now, now, notebook_id),
     )
     conn.commit()
     conn.close()
@@ -171,7 +179,11 @@ Summary:"""
     return summary
 
 
-def get_relevant_history(query: str, max_sessions: int = 3) -> str:
+def get_relevant_history(
+    query: str,
+    max_sessions: int = 3,
+    notebook_id: Optional[str] = None,
+) -> str:
     """
     Retrieve relevant past conversation summaries.
     Useful when user asks "What did we discuss yesterday?" or references past topics.
@@ -185,10 +197,22 @@ def get_relevant_history(query: str, max_sessions: int = 3) -> str:
     """
     init_memory_db()
     conn = _get_connection()
-    rows = conn.execute(
-        "SELECT session_id, summary, updated_at FROM sessions WHERE summary != '' ORDER BY updated_at DESC LIMIT ?",
-        (max_sessions,),
-    ).fetchall()
+    if notebook_id:
+        rows = conn.execute(
+            """
+            SELECT session_id, summary, updated_at
+            FROM sessions
+            WHERE summary != '' AND notebook_id = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (notebook_id, max_sessions),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT session_id, summary, updated_at FROM sessions WHERE summary != '' ORDER BY updated_at DESC LIMIT ?",
+            (max_sessions,),
+        ).fetchall()
     conn.close()
 
     if not rows:
@@ -214,25 +238,29 @@ def format_chat_history(messages: list[dict], max_turns: int = 5) -> str:
     return formatted.strip()
 
 
-def get_all_sessions(limit: int = 30) -> list[dict]:
+def get_all_sessions(limit: int = 30, notebook_id: Optional[str] = None) -> list[dict]:
     """
     Return all sessions that have at least one message, ordered by most recent.
     Includes message count and the first user message as a preview.
+    If notebook_id is provided, only returns sessions for that notebook.
     """
     init_memory_db()
     conn = _get_connection()
+    nb_filter = " AND s.notebook_id = ?" if notebook_id else ""
+    nb_params = [notebook_id, limit] if notebook_id else [limit]
     rows = conn.execute(
-        """
+        f"""
         SELECT s.session_id, s.created_at, s.updated_at, s.summary,
                COUNT(m.id) as message_count
         FROM sessions s
         LEFT JOIN messages m ON s.session_id = m.session_id
+        WHERE 1=1{nb_filter}
         GROUP BY s.session_id
         HAVING message_count > 0
         ORDER BY s.updated_at DESC
         LIMIT ?
         """,
-        (limit,),
+        nb_params,
     ).fetchall()
 
     sessions = []

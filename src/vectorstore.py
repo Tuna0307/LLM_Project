@@ -178,9 +178,13 @@ def similarity_search_with_scores(
     return results
 
 
-def get_collection_stats(collection_name: Optional[str] = None) -> dict:
+def get_collection_stats(
+    collection_name: Optional[str] = None,
+    notebook_id: Optional[str] = None,
+) -> dict:
     """
     Get statistics about a collection.
+    If notebook_id is provided, only count chunks belonging to that notebook.
 
     Returns:
         Dictionary with collection info (count, name, etc.)
@@ -192,9 +196,14 @@ def get_collection_stats(collection_name: Optional[str] = None) -> dict:
 
     try:
         collection = client.get_collection(collection_name)
+        if notebook_id:
+            result = collection.get(where={"notebook_id": {"$eq": notebook_id}}, include=["metadatas"])
+            count = len(result.get("ids", []))
+        else:
+            count = collection.count()
         return {
             "name": collection_name,
-            "count": collection.count(),
+            "count": count,
         }
     except Exception:
         return {
@@ -203,13 +212,19 @@ def get_collection_stats(collection_name: Optional[str] = None) -> dict:
         }
 
 
-def get_uploaded_documents(collection_name: Optional[str] = None) -> list:
+def get_uploaded_documents(
+    collection_name: Optional[str] = None,
+    notebook_id: Optional[str] = None,
+) -> list:
     """
     Return a deduplicated list of source files that have been indexed,
     along with their metadata and chunk counts.
 
+    Args:
+        notebook_id: If provided, only return documents belonging to this notebook.
+
     Returns:
-        List of dicts: [{source_file, topic, doc_type, chunk_count}, ...]
+        List of dicts: [{source_file, topic, doc_type, chunk_count, notebook_id}, ...]
     """
     if collection_name is None:
         collection_name = config.DEFAULT_COLLECTION
@@ -217,7 +232,10 @@ def get_uploaded_documents(collection_name: Optional[str] = None) -> list:
     client = chromadb.PersistentClient(path=config.CHROMA_PERSIST_DIR)
     try:
         collection = client.get_collection(collection_name)
-        result = collection.get(include=["metadatas"])
+        get_kwargs: dict = {"include": ["metadatas"]}
+        if notebook_id:
+            get_kwargs["where"] = {"notebook_id": {"$eq": notebook_id}}
+        result = collection.get(**get_kwargs)
         docs: dict = {}
         for meta in result.get("metadatas", []):
             if not meta:
@@ -228,6 +246,7 @@ def get_uploaded_documents(collection_name: Optional[str] = None) -> list:
                     "source_file": key,
                     "topic": meta.get("topic", ""),
                     "doc_type": meta.get("doc_type", "lecture"),
+                    "notebook_id": meta.get("notebook_id", ""),
                     "chunk_count": 0,
                 }
             docs[key]["chunk_count"] += 1
@@ -292,9 +311,11 @@ def delete_collection(collection_name: str) -> bool:
 def delete_documents_by_source(
     source_file: str,
     collection_name: Optional[str] = None,
+    notebook_id: Optional[str] = None,
 ) -> int:
     """
     Delete all chunks whose metadata source_file matches the given filename.
+    If notebook_id is provided, only delete chunks belonging to that notebook.
 
     Returns:
         Number of chunks deleted.
@@ -308,10 +329,16 @@ def delete_documents_by_source(
     except Exception:
         return 0  # collection doesn't exist yet
 
+    # Build where clause - scope to notebook if provided
+    if notebook_id:
+        where_clause = {"$and": [{"source_file": {"$eq": source_file}}, {"notebook_id": {"$eq": notebook_id}}]}
+    else:
+        where_clause = {"source_file": source_file}
+
     # Fetch IDs of all chunks matching this source file
-    results = col.get(where={"source_file": source_file})
+    results = col.get(where=where_clause)
     ids = results.get("ids", [])
     if ids:
         col.delete(ids=ids)
-        print(f"[DEL] Deleted {len(ids)} chunks for '{source_file}'")
+        print(f"[DEL] Deleted {len(ids)} chunks for '{source_file}' (notebook={notebook_id or 'any'})")
     return len(ids)

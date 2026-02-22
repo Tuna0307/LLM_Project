@@ -11,6 +11,7 @@ Implements:
 Author: Shunren (Core RAG Logic)
 """
 import json
+import threading
 from typing import Optional
 
 from rank_bm25 import BM25Okapi
@@ -65,12 +66,34 @@ class BM25Index:
 
 # Global BM25 index instance
 _bm25_index = BM25Index()
+_bm25_init_lock = threading.Lock()
+
+
+def _doc_matches_filters(doc: Document, filters: Optional[dict]) -> bool:
+    """Return True if a document metadata dict satisfies simple equality filters."""
+    if not filters:
+        return True
+
+    metadata = doc.metadata or {}
+    for key, expected in filters.items():
+        if isinstance(expected, dict):
+            if "$eq" in expected:
+                if metadata.get(key) != expected["$eq"]:
+                    return False
+            else:
+                return False
+        else:
+            if metadata.get(key) != expected:
+                return False
+    return True
 
 
 def get_bm25_index() -> BM25Index:
     """Get the global BM25 index, building it if needed."""
     if _bm25_index.bm25 is None:
-        _bm25_index.build_from_vectorstore()
+        with _bm25_init_lock:
+            if _bm25_index.bm25 is None:
+                _bm25_index.build_from_vectorstore()
     return _bm25_index
 
 
@@ -239,6 +262,8 @@ def hybrid_retrieve(
         # Step 3: Sparse retrieval (BM25)
         bm25 = get_bm25_index()
         sparse_results = bm25.search(q, k=config.TOP_K_RETRIEVAL)
+        if filters:
+            sparse_results = [doc for doc in sparse_results if _doc_matches_filters(doc, filters)]
         all_sparse_results.extend(sparse_results)
 
     # Step 4: Merge with RRF

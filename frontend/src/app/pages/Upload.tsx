@@ -18,15 +18,15 @@ import { Progress } from "../components/ui/progress";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
 import { toast } from "sonner";
+import { useNotebook, setNotebookDocCount } from "../context/NotebookContext";
+import { useUpload } from "../context/UploadContext";
 
 export default function Upload() {
+  const { notebook, refreshNotebook } = useNotebook();
+  const { isProcessing, progress, progressLabel, uploadComplete, startUpload } = useUpload();
+
   const [dragActive, setDragActive] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [progressLabel, setProgressLabel] = useState("");
-  const [uploadComplete, setUploadComplete] = useState(false);
-  
   const [topic, setTopic] = useState("");
   const [docType, setDocType] = useState("lecture");
 
@@ -36,8 +36,18 @@ export default function Upload() {
   const fetchIndexedDocs = async () => {
     setIsLoadingDocs(true);
     try {
-      const res = await fetch("http://localhost:8000/api/documents");
-      if (res.ok) setIndexedDocs(await res.json());
+      const url = notebook
+        ? `http://localhost:8001/api/documents?notebook_id=${encodeURIComponent(notebook.id)}`
+        : "http://localhost:8001/api/documents";
+      const res = await fetch(url);
+      if (res.ok) {
+        const docs = await res.json();
+        setIndexedDocs(docs);
+        if (notebook) {
+          setNotebookDocCount(notebook.id, docs.length);
+          refreshNotebook();
+        }
+      }
     } catch {
       // backend not running
     } finally {
@@ -47,7 +57,8 @@ export default function Upload() {
 
   const handleDeleteDocument = async (filename: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/documents/${encodeURIComponent(filename)}`, {
+      const nbParam = notebook ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
+      const res = await fetch(`http://localhost:8001/api/documents/${encodeURIComponent(filename)}${nbParam}`, {
         method: "DELETE",
       });
       if (res.ok) {
@@ -63,7 +74,17 @@ export default function Upload() {
 
   useEffect(() => {
     fetchIndexedDocs();
-  }, []);
+  }, [notebook?.id]);
+
+  // When the context signals upload is complete, refresh the doc list and clear the file queue
+  useEffect(() => {
+    if (uploadComplete) {
+      fetchIndexedDocs();
+      setFiles([]);
+      setTopic("");
+      refreshNotebook();
+    }
+  }, [uploadComplete]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -99,60 +120,8 @@ export default function Upload() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleProcess = async () => {
-    if (files.length === 0) return;
-    
-    setIsProcessing(true);
-    setProgress(5);
-    setProgressLabel("Uploading files...");
-    setUploadComplete(false);
-    
-    try {
-      const formData = new FormData();
-      files.forEach(file => {
-        formData.append("files", file);
-      });
-      
-      if (topic) formData.append("topic", topic);
-      if (docType) formData.append("doc_type", docType);
-
-      // Progress simulation — embedding batches take ~15s each so we pace slowly
-      const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          const next = prev < 88 ? prev + 1 : prev;
-          if (next < 20) setProgressLabel("Extracting & cleaning text...");
-          else if (next < 50) setProgressLabel("Generating embeddings (batching with rate limits)...");
-          else if (next < 80) setProgressLabel("Indexing into vector store...");
-          else setProgressLabel("Almost done — finalising index...");
-          return next;
-        });
-      }, 1200); // 1.2s per tick → reaches 88% in ~100s, matching real embed time
-
-      const response = await fetch("http://localhost:8000/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      clearInterval(progressInterval);
-
-      if (!response.ok) {
-        throw new Error("Upload failed");
-      }
-
-      const data = await response.json();
-      setProgress(100);
-      setProgressLabel("Complete!");
-      setUploadComplete(true);
-      toast.success(data.message || "Files processed successfully!");
-      fetchIndexedDocs(); // refresh the file history
-    } catch (error) {
-      console.error("Upload error:", error);
-      toast.error("Failed to process files. Please try again.");
-      setProgress(0);
-      setProgressLabel("");
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleProcess = () => {
+    startUpload(files, topic, docType, notebook);
   };
 
   return (

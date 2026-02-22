@@ -39,8 +39,10 @@ import {
   TableRow 
 } from "../components/ui/table";
 import { toast } from "sonner";
+import { useNotebook } from "../context/NotebookContext";
 
 export default function Settings() {
+  const { notebook } = useNotebook();
   const [pending, setPending] = useState<any[]>([]);
   const [accepted, setAccepted] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({
@@ -58,10 +60,12 @@ export default function Settings() {
 
   const fetchData = async () => {
     try {
+      const nbParam = notebook?.id ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
+      const nbAmp  = notebook?.id ? `&notebook_id=${encodeURIComponent(notebook.id)}` : "";
       const [pendingRes, acceptedRes, statsRes] = await Promise.all([
-        fetch("http://localhost:8000/api/quiz/pending"),
-        fetch("http://localhost:8000/api/quiz/accepted?limit=50"),
-        fetch("http://localhost:8000/api/stats")
+        fetch(`http://localhost:8001/api/quiz/pending${nbParam}`),
+        fetch(`http://localhost:8001/api/quiz/accepted?limit=50${nbAmp}`),
+        fetch(`http://localhost:8001/api/stats${nbParam}`)
       ]);
 
       if (pendingRes.ok) setPending(await pendingRes.json());
@@ -77,12 +81,16 @@ export default function Settings() {
   };
 
   useEffect(() => {
+    // Reset stats to zero when switching notebooks to avoid stale flash
+    setStats({ total_questions: 0, pending: 0, accepted: 0, rejected: 0 });
+    setPending([]);
+    setAccepted([]);
     fetchData();
-  }, []);
+  }, [notebook?.id]);
 
   const handleApprove = async (id: number) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/quiz/${id}/review`, {
+      const res = await fetch(`http://localhost:8001/api/quiz/${id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "accept", admin_notes: "Approved" })
@@ -100,7 +108,7 @@ export default function Settings() {
 
   const handleReject = async (id: number) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/quiz/${id}/review`, {
+      const res = await fetch(`http://localhost:8001/api/quiz/${id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reject", admin_notes: "Rejected" })
@@ -119,10 +127,10 @@ export default function Settings() {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      const res = await fetch("http://localhost:8000/api/quiz/generate", {
+      const res = await fetch("http://localhost:8001/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: genTopic || null, num_questions: genCount, question_type: genType })
+        body: JSON.stringify({ topic: genTopic || null, num_questions: genCount, question_type: genType, notebook_id: notebook?.id ?? null })
       });
       if (res.ok) {
         const data = await res.json();
@@ -152,7 +160,7 @@ export default function Settings() {
   const handleDeleteQuestion = async (id: number) => {
     if (!confirm("Delete this question permanently?")) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/questions/${id}`, { method: "DELETE" });
+      const res = await fetch(`http://localhost:8001/api/questions/${id}`, { method: "DELETE" });
       if (res.ok) {
         toast.success("Question deleted");
         fetchData();
@@ -167,7 +175,7 @@ export default function Settings() {
   const handleSaveEdit = async () => {
     if (!editingQuestion) return;
     try {
-      const res = await fetch(`http://localhost:8000/api/quiz/${editingQuestion.id}/review`, {
+      const res = await fetch(`http://localhost:8001/api/quiz/${editingQuestion.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

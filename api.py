@@ -30,7 +30,7 @@ app = FastAPI(title="IRRA API", description="Intelligent RAG Revision Assistant 
 # Allow CORS for the React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174", "http://localhost:5175", "http://127.0.0.1:5175", "http://localhost:5176", "http://127.0.0.1:5176"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,6 +42,7 @@ class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
+    notebook_id: Optional[str] = None
 
 class ChatResponse(BaseModel):
     answer: str
@@ -54,6 +55,7 @@ class GenerateQuizRequest(BaseModel):
     topic: Optional[str] = None
     num_questions: int = 5
     question_type: Optional[str] = None  # "mcq", "true_false", "open_ended", or None for mixed
+    notebook_id: Optional[str] = None    # UUID of the active notebook
 
 class ReviewQuizRequest(BaseModel):
     action: str # "accept", "reject", "edit"
@@ -72,10 +74,14 @@ class RecordAttemptRequest(BaseModel):
 def read_root():
     return {"status": "IRRA API is running"}
 
+@app.get("/api/status")
+def api_status():
+    return {"status": "ok"}
+
 # 1. Chat Endpoints
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
-    session_id = request.session_id or create_session()
+    session_id = request.session_id or create_session(notebook_id=request.notebook_id)
     
     try:
         result = handle_query(
@@ -96,10 +102,10 @@ def chat(request: ChatRequest):
 
 # 1b. Session History Endpoints
 @app.get("/api/sessions")
-def api_list_sessions():
+def api_list_sessions(notebook_id: Optional[str] = None):
     """Return all chat sessions with preview, ordered by most recent."""
     try:
-        return get_all_sessions()
+        return get_all_sessions(notebook_id=notebook_id)
     except Exception as e:
         return []
 
@@ -123,13 +129,16 @@ async def upload_notes(
     files: List[UploadFile] = File(...),
     topic: Optional[str] = Form(None),
     week: Optional[int] = Form(0),
-    doc_type: Optional[str] = Form("lecture")
+    doc_type: Optional[str] = Form("lecture"),
+    notebook_id: Optional[str] = Form(None),
 ):
     extra_metadata = {"doc_type": doc_type}
     if topic:
         extra_metadata["topic"] = topic
     if week and week > 0:
         extra_metadata["week"] = week
+    if notebook_id:
+        extra_metadata["notebook_id"] = notebook_id
 
     all_chunks = []
 
@@ -148,8 +157,8 @@ async def upload_notes(
             tmp_path = tmp.name
 
         try:
-            # Delete any existing chunks for this file so re-uploads don't duplicate
-            deleted = delete_documents_by_source(file.filename)
+            # Delete any existing chunks for this file in this notebook so re-uploads don't duplicate
+            deleted = delete_documents_by_source(file.filename, notebook_id=extra_metadata.get("notebook_id"))
             if deleted:
                 print(f"[REPLACE] Replaced {deleted} existing chunks for '{file.filename}'")
             chunks = load_and_process_file(tmp_path, extra_metadata, original_filename=file.filename)
@@ -171,10 +180,16 @@ async def upload_notes(
 @app.post("/api/quiz/generate")
 def api_generate_questions(request: GenerateQuizRequest):
     try:
+        # If notebook_id provided, filter vectorstore retrieval by it
+        filters = None
+        if request.notebook_id:
+            filters = {"notebook_id": request.notebook_id}
         questions = generate_questions(
             topic=request.topic,
             num_questions=request.num_questions,
-            question_type=request.question_type
+            question_type=request.question_type,
+            filters=filters,
+            notebook_id=request.notebook_id,
         )
         if questions:
             saved = save_generated_questions(questions)
@@ -186,12 +201,17 @@ def api_generate_questions(request: GenerateQuizRequest):
         raise HTTPException(status_code=500, detail=f"Quiz generation error: {str(e)}")
 
 @app.get("/api/quiz/pending")
-def api_get_pending_questions():
-    return get_pending_questions()
+def api_get_pending_questions(notebook_id: Optional[str] = None):
+    return get_pending_questions(notebook_id=notebook_id)
 
 @app.get("/api/quiz/accepted")
-def api_get_accepted_questions(topic: Optional[str] = None, difficulty: Optional[str] = None, limit: int = 10):
-    return get_accepted_questions(topic=topic, difficulty=difficulty, limit=limit)
+def api_get_accepted_questions(
+    topic: Optional[str] = None,
+    difficulty: Optional[str] = None,
+    limit: int = 10,
+    notebook_id: Optional[str] = None,
+):
+    return get_accepted_questions(topic=topic, difficulty=difficulty, limit=limit, notebook_id=notebook_id)
 
 @app.post("/api/quiz/{question_id}/review")
 def api_review_question(question_id: int, request: ReviewQuizRequest):
@@ -207,10 +227,10 @@ def api_review_question(question_id: int, request: ReviewQuizRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/quiz/performance")
-def api_get_performance_trend(days: int = 14):
+def api_get_performance_trend(days: int = 14, notebook_id: Optional[str] = None):
     """Return daily quiz accuracy trend for the last N days."""
     try:
-        return get_performance_trend(days=days)
+        return get_performance_trend(days=days, notebook_id=notebook_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -228,11 +248,11 @@ def api_record_attempt(request: RecordAttemptRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/documents/{filename:path}")
-def api_delete_document(filename: str):
+def api_delete_document(filename: str, notebook_id: Optional[str] = None):
     """Delete all indexed chunks for a given source file, and its related questions."""
     try:
-        deleted_chunks = delete_documents_by_source(filename)
-        deleted_questions = delete_quiz_questions_by_source(filename)
+        deleted_chunks = delete_documents_by_source(filename, notebook_id=notebook_id)
+        deleted_questions = delete_quiz_questions_by_source(filename, notebook_id=notebook_id)
         rebuild_bm25_index()
         return {
             "message": f"Deleted {deleted_chunks} chunks and {deleted_questions} questions for '{filename}'.",
@@ -252,10 +272,10 @@ def api_get_document_metadata():
         return {"weeks": [], "topics": []}
 
 @app.get("/api/documents")
-def api_get_uploaded_documents():
-    """Return a list of all uploaded/indexed source files with metadata."""
+def api_get_uploaded_documents(notebook_id: Optional[str] = None):
+    """Return a list of all uploaded/indexed source files with metadata, optionally filtered by notebook."""
     try:
-        return get_uploaded_documents()
+        return get_uploaded_documents(notebook_id=notebook_id)
     except Exception as e:
         return []
 
@@ -274,10 +294,10 @@ def api_delete_question(question_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/stats")
-def api_get_stats():
+def api_get_stats(notebook_id: Optional[str] = None):
     try:
-        vec_stats = get_collection_stats()
-        quiz_stats = get_quiz_stats()
+        vec_stats = get_collection_stats(notebook_id=notebook_id)
+        quiz_stats = get_quiz_stats(notebook_id=notebook_id)
         return {
             "vectorstore": vec_stats,
             "quiz": quiz_stats
@@ -290,4 +310,4 @@ def api_get_stats():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("api:app", host="0.0.0.0", port=8001, reload=True)

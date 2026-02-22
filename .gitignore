@@ -14,8 +14,9 @@ db/chroma/
 db/*.db
 *.db
 
-# ── Uploaded PDFs (too large for git) ──
-data/raw/*.pdf
+# ── Uploaded files (all types — too large / private for git) ──
+data/raw/*
+!data/raw/.gitkeep
 data/processed/
 
 # ── Reference papers (not source code) ──
@@ -34,4 +35,8 @@ frontend/.env
 
 # ── OS ──
 .DS_Store
+Thumb.db
 Thumbs.db
+
+# ── Accidental output files ──
+/-*

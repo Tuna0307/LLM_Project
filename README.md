@@ -10,10 +10,11 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 
 | Feature | Description |
 |---------|-------------|
+| 📓 **Multi-Notebook** | Organise study materials into separate isolated notebooks |
 | 📚 **Study Chat** | Ask questions grounded in your lecture materials with source citations |
-| � **Chat History** | Browse, resume, and delete past study conversations |
+| 💬 **Chat History** | Browse, resume, and delete past study conversations |
 | 📝 **Exam Mode** | Practice with AI-generated MCQ, True/False, and Short Answer questions |
-| 📤 **Upload Notes** | Upload PDF lecture slides, tutorials, and lab manuals |
+| 📤 **Upload Notes** | Upload PDF, Word, PowerPoint, TXT, or Markdown lecture materials |
 | 🔧 **Settings** | Human-in-the-Loop (HITL) question validation and system management |
 | 🤖 **Agent Routing** | Automatically routes queries to RAG, direct LLM, or web search |
 | 🔄 **Self-Reflection** | Plan → Act → Observe → Reflect → Revise loop for answer quality |
@@ -36,8 +37,8 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 │        ▼           ▼            ▼               ▼            │
 │   ┌──────────────────────────────────────────────────┐      │
 │   │                 FastAPI Backend                  │      │
-│   │  ┌─────────┐ ┌─────────┐ ┌──────────┐  ┌───────┐ │      │
-│   │  │  Agent  │ │Quiz Mode│ │  Ingest  │  │ Admin │ │      │
+│   │  ┌─────────┐ ┌─────────┐ ┌──────────┐  ┌────────┐ │      │
+│   │  │  Agent  │ │Quiz Mode│ │  Ingest  │  │Settings│ │      │
 │   │  │ Router  │ │(Student)│ │ Pipeline │  │ HITL  │ │      │
 │   │  └────┬────┘ └─────────┘ └────┬─────┘  └───────┘ │      │
 │   └───────┼───────────────────────┼──────────────────┘      │
@@ -50,7 +51,7 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 │                   │                                         │
 │   ┌───────────────▼─────────────────────┐                   │
 │   │       Google Gemini API             │                   │
-│   │  LLM: gemini-2.0-flash              │                   │
+│   │  LLM: gemini-2.5-flash              │                   │
 │   │  Embeddings: gemini-embedding-001   │                   │
 │   └─────────────────────────────────────┘                   │
 │                                                             │
@@ -75,7 +76,7 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 
 ```bash
 git clone <repo-url>
-cd LLM-Project
+cd LLM_Project
 
 # Install Python backend dependencies
 pip install -r requirements.txt
@@ -106,9 +107,9 @@ You will need two terminal windows to run the backend and frontend separately.
 **Terminal 1: Start the FastAPI Backend**
 ```bash
 # From the root directory (activate your Python environment first)
-python -m uvicorn api:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn api:app --host 0.0.0.0 --port 8001
 ```
-The API will be available at **http://localhost:8000**.
+The API will be available at **http://localhost:8001**.
 
 **Terminal 2: Start the React Frontend**
 ```bash
@@ -120,7 +121,7 @@ The app will open at **http://localhost:5173**.
 
 ### 4. Upload course materials
 
-Navigate to **📤 Upload Notes** and drag-and-drop your PDF lecture slides.
+Navigate to **📤 Upload Notes** and drag-and-drop your lecture materials (PDF, DOCX, PPTX, TXT, or Markdown).
 
 ### 5. Start studying!
 
@@ -133,7 +134,7 @@ Navigate to **📤 Upload Notes** and drag-and-drop your PDF lecture slides.
 ## 📁 Project Structure
 
 ```
-LLM Project/
+LLM_Project/
 ├── api.py                  # FastAPI entry point (all REST endpoints)
 ├── config.py               # Central configuration (API keys, model settings)
 ├── requirements.txt        # Python dependencies
@@ -142,23 +143,24 @@ LLM Project/
 │
 ├── src/                    # Core backend modules
 │   ├── __init__.py         # Package init with public API exports
-│   ├── ingest.py           # PDF ETL pipeline (extract → clean → chunk → enrich)
+│   ├── ingest.py           # File ETL pipeline (PDF, DOCX, PPTX, TXT → chunks)
 │   ├── vectorstore.py      # ChromaDB vector store (embeddings, search, CRUD)
 │   ├── retriever.py        # Hybrid retrieval (Dense + BM25 + RRF + reranking)
 │   ├── agent.py            # Query router + self-reflection loop
-│   ├── memory.py           # Conversation memory (SQLite, summaries)
+│   ├── memory.py           # Conversation memory (SQLite, per-notebook sessions)
 │   ├── quiz_mode.py        # Quiz generation + HITL validation pipeline
 │   └── citations.py        # Source citation formatting
 │
 ├── frontend/               # React + Vite frontend
 │   ├── package.json        # Node.js dependencies
-│   ├── vite.config.ts      # Vite build config
+│   ├── vite.config.ts      # Vite build config (port 5173)
 │   └── src/
 │       └── app/
 │           ├── App.tsx     # Root component
 │           ├── routes.ts   # React Router routes
-│           ├── pages/      # Chat, Exam, Upload, Admin, Home
-│           ├── layouts/    # DashboardLayout (sidebar)
+│           ├── pages/      # Notebooks, Chat, Exam, Upload, Settings, Home
+│           ├── layouts/    # DashboardLayout (per-notebook sidebar)
+│           ├── context/    # NotebookContext (multi-notebook state)
 │           └── components/ # shadcn/ui component library
 │
 ├── prompts/                # LLM prompt templates
@@ -167,9 +169,8 @@ LLM Project/
 │   ├── reflection_prompt.txt # Answer self-evaluation
 │   └── quiz_prompt.txt     # Question generation
 │
-├── data/                   # Data directories (PDFs not tracked in git)
-│   ├── raw/                # Drop PDF lecture slides here for CLI ingestion
-│   └── processed/          # Processed chunks (auto-generated)
+├── data/                   # Data directories (uploads not tracked in git)
+│   └── raw/                # Uploaded files (PDF, DOCX, PPTX, TXT, MD)
 │
 └── db/                     # Persistent storage (auto-created on first run)
     ├── chroma/             # ChromaDB vector database
@@ -183,7 +184,7 @@ LLM Project/
 
 | Component | Technology |
 |-----------|-----------|
-| **LLM** | Google Gemini 2.0 Flash (free tier) |
+| **LLM** | Google Gemini 2.5 Flash (free tier) |
 | **Embeddings** | Google Gemini Embedding 001 |
 | **Framework** | LangChain 0.3+ |
 | **Vector Store** | ChromaDB |
@@ -202,7 +203,7 @@ All settings are centralized in `config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `LLM_MODEL` | `gemini-2.0-flash` | Google Gemini model for generation |
+| `LLM_MODEL` | `gemini-2.5-flash` | Google Gemini model for generation |
 | `EMBEDDING_MODEL` | `models/gemini-embedding-001` | Embedding model |
 | `CHUNK_SIZE` | `500` | Characters per text chunk |
 | `CHUNK_OVERLAP` | `50` | Overlap between chunks |

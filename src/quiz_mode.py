@@ -28,8 +28,10 @@ import config
 def _get_quiz_connection() -> sqlite3.Connection:
     """Get a SQLite connection for the quiz database."""
     os.makedirs(os.path.dirname(config.QUIZ_DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(config.QUIZ_DB_PATH)
+    conn = sqlite3.connect(config.QUIZ_DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -50,12 +52,18 @@ def init_quiz_db():
             source_doc TEXT,
             source_page INTEGER,
             topic TEXT,
+            notebook_id TEXT,
             status TEXT DEFAULT 'pending',
             admin_notes TEXT DEFAULT '',
             created_at TEXT NOT NULL,
             reviewed_at TEXT
         )
     """)
+
+    # Migrate existing DB: add notebook_id column if it doesn't exist
+    existing_cols = [row[1] for row in cursor.execute("PRAGMA table_info(questions)").fetchall()]
+    if "notebook_id" not in existing_cols:
+        cursor.execute("ALTER TABLE questions ADD COLUMN notebook_id TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS quiz_attempts (
@@ -80,6 +88,7 @@ def generate_questions(
     num_questions: int = None,
     question_type: Optional[str] = None,
     filters: Optional[dict] = None,
+    notebook_id: Optional[str] = None,
 ) -> list[dict]:
     """
     Generate practice questions from lecture materials.
@@ -148,11 +157,10 @@ def generate_questions(
         if isinstance(questions, list):
             labels = ["A", "B", "C", "D"]
             for q in questions:
-                # Fill in citation if missing
-                if not q.get("source_doc"):
-                    citation = extract_citation_for_quiz(chunks[0].metadata)
-                    q["source_doc"] = citation["source_doc"]
-                    q["source_page"] = citation["source_page"]
+                # Enforce source citation from retrieved context metadata (do not trust LLM-provided source_doc)
+                citation = extract_citation_for_quiz(chunks[0].metadata)
+                q["source_doc"] = citation["source_doc"]
+                q["source_page"] = citation["source_page"]
 
                 # Shuffle MCQ options so correct answer isn't always B/C
                 if q.get("type") == "mcq" and isinstance(q.get("options"), list) and len(q["options"]) > 1:
@@ -179,6 +187,10 @@ def generate_questions(
                         q["options"] = new_options
                         q["correct_answer"] = labels[new_correct_pos]
 
+            # Attach notebook_id to each question so save_generated_questions can store it
+            if notebook_id:
+                for q in questions:
+                    q["notebook_id"] = notebook_id
             return questions
     except (json.JSONDecodeError, AttributeError) as e:
         print(f"[ERR] Failed to parse quiz questions: {e}")
@@ -205,8 +217,8 @@ def save_generated_questions(questions: list[dict]) -> int:
             conn.execute(
                 """INSERT INTO questions 
                    (type, question, options, correct_answer, explanation, 
-                    difficulty, source_doc, source_page, topic, status, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
+                    difficulty, source_doc, source_page, topic, notebook_id, status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)""",
                 (
                     q.get("type", "mcq"),
                     q["question"],
@@ -217,6 +229,7 @@ def save_generated_questions(questions: list[dict]) -> int:
                     q.get("source_doc", ""),
                     q.get("source_page", 0),
                     q.get("topic", ""),
+                    q.get("notebook_id"),
                     now,
                 ),
             )
@@ -239,23 +252,35 @@ def delete_question_by_id(question_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def delete_questions_by_source(source_doc: str) -> int:
-    """Delete all questions whose source_doc matches the given filename."""
+def delete_questions_by_source(source_doc: str, notebook_id: Optional[str] = None) -> int:
+    """Delete all questions whose source_doc matches the given filename, optionally scoped to a notebook."""
     init_quiz_db()
     conn = _get_quiz_connection()
-    cur = conn.execute("DELETE FROM questions WHERE source_doc = ?", (source_doc,))
+    if notebook_id:
+        cur = conn.execute(
+            "DELETE FROM questions WHERE source_doc = ? AND notebook_id = ?",
+            (source_doc, notebook_id),
+        )
+    else:
+        cur = conn.execute("DELETE FROM questions WHERE source_doc = ?", (source_doc,))
     conn.commit()
     conn.close()
     return cur.rowcount
 
 
-def get_pending_questions() -> list[dict]:
-    """Get all questions pending admin review."""
+def get_pending_questions(notebook_id: Optional[str] = None) -> list[dict]:
+    """Get all questions pending admin review, optionally scoped to a notebook."""
     init_quiz_db()
     conn = _get_quiz_connection()
-    rows = conn.execute(
-        "SELECT * FROM questions WHERE status = 'pending' ORDER BY created_at DESC"
-    ).fetchall()
+    if notebook_id:
+        rows = conn.execute(
+            "SELECT * FROM questions WHERE status = 'pending' AND notebook_id = ? ORDER BY created_at DESC",
+            (notebook_id,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM questions WHERE status = 'pending' ORDER BY created_at DESC"
+        ).fetchall()
     conn.close()
 
     return [dict(row) for row in rows]
@@ -316,6 +341,7 @@ def get_accepted_questions(
     topic: Optional[str] = None,
     difficulty: Optional[str] = None,
     limit: int = 10,
+    notebook_id: Optional[str] = None,
 ) -> list[dict]:
     """Get accepted questions for student-facing Exam Mode."""
     init_quiz_db()
@@ -323,6 +349,10 @@ def get_accepted_questions(
 
     query = "SELECT * FROM questions WHERE status = 'accepted'"
     params = []
+
+    if notebook_id:
+        query += " AND notebook_id = ?"
+        params.append(notebook_id)
 
     if topic:
         query += " AND topic = ?"
@@ -366,19 +396,32 @@ def record_attempt(session_id: str, question_id: int, user_answer: str, is_corre
     conn.close()
 
 
-def get_quiz_stats() -> dict:
-    """Get overall quiz statistics for the admin dashboard."""
+def get_quiz_stats(notebook_id: Optional[str] = None) -> dict:
+    """Get overall quiz statistics for the admin dashboard, optionally scoped to a notebook."""
     init_quiz_db()
     conn = _get_quiz_connection()
 
-    total = conn.execute("SELECT COUNT(*) as cnt FROM questions").fetchone()["cnt"]
-    pending = conn.execute("SELECT COUNT(*) as cnt FROM questions WHERE status = 'pending'").fetchone()["cnt"]
-    accepted = conn.execute("SELECT COUNT(*) as cnt FROM questions WHERE status = 'accepted'").fetchone()["cnt"]
-    rejected = conn.execute("SELECT COUNT(*) as cnt FROM questions WHERE status = 'rejected'").fetchone()["cnt"]
+    nb_filter = " AND notebook_id = ?" if notebook_id else ""
+    nb_params = [notebook_id] if notebook_id else []
 
-    # Attempt stats
-    total_attempts = conn.execute("SELECT COUNT(*) as cnt FROM quiz_attempts").fetchone()["cnt"]
-    correct_attempts = conn.execute("SELECT COUNT(*) as cnt FROM quiz_attempts WHERE is_correct = 1").fetchone()["cnt"]
+    total    = conn.execute(f"SELECT COUNT(*) as cnt FROM questions WHERE 1=1{nb_filter}", nb_params).fetchone()["cnt"]
+    pending  = conn.execute(f"SELECT COUNT(*) as cnt FROM questions WHERE status = 'pending'{nb_filter}", nb_params).fetchone()["cnt"]
+    accepted = conn.execute(f"SELECT COUNT(*) as cnt FROM questions WHERE status = 'accepted'{nb_filter}", nb_params).fetchone()["cnt"]
+    rejected = conn.execute(f"SELECT COUNT(*) as cnt FROM questions WHERE status = 'rejected'{nb_filter}", nb_params).fetchone()["cnt"]
+
+    # Attempt stats — join attempts → questions so we can filter by notebook
+    if notebook_id:
+        total_attempts   = conn.execute(
+            "SELECT COUNT(*) as cnt FROM quiz_attempts qa JOIN questions q ON qa.question_id = q.id WHERE q.notebook_id = ?",
+            [notebook_id]
+        ).fetchone()["cnt"]
+        correct_attempts = conn.execute(
+            "SELECT COUNT(*) as cnt FROM quiz_attempts qa JOIN questions q ON qa.question_id = q.id WHERE q.notebook_id = ? AND qa.is_correct = 1",
+            [notebook_id]
+        ).fetchone()["cnt"]
+    else:
+        total_attempts   = conn.execute("SELECT COUNT(*) as cnt FROM quiz_attempts").fetchone()["cnt"]
+        correct_attempts = conn.execute("SELECT COUNT(*) as cnt FROM quiz_attempts WHERE is_correct = 1").fetchone()["cnt"]
 
     conn.close()
 
@@ -393,8 +436,8 @@ def get_quiz_stats() -> dict:
     }
 
 
-def get_performance_trend(days: int = 14) -> list:
-    """Return daily quiz accuracy trend for the last N days.
+def get_performance_trend(days: int = 14, notebook_id: Optional[str] = None) -> list:
+    """Return daily quiz accuracy trend for the last N days, optionally scoped to a notebook.
 
     Each entry: {"date": "Feb 20", "accuracy": 75.0, "attempts": 8, "correct": 6}
     Days with no attempts are included as zeros so the chart line is continuous.
@@ -408,20 +451,36 @@ def get_performance_trend(days: int = 14) -> list:
     today = date.today()
     date_range = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
 
-    # Fetch raw counts grouped by day
-    rows = conn.execute(
-        """
-        SELECT
-            substr(timestamp, 1, 10) as day,
-            COUNT(*) as attempts,
-            SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct
-        FROM quiz_attempts
-        WHERE substr(timestamp, 1, 10) >= ?
-        GROUP BY day
-        ORDER BY day
-        """,
-        (date_range[0],),
-    ).fetchall()
+    # Fetch raw counts grouped by day, optionally scoped to notebook via question join
+    if notebook_id:
+        rows = conn.execute(
+            """
+            SELECT
+                substr(qa.timestamp, 1, 10) as day,
+                COUNT(*) as attempts,
+                SUM(CASE WHEN qa.is_correct = 1 THEN 1 ELSE 0 END) as correct
+            FROM quiz_attempts qa
+            JOIN questions q ON qa.question_id = q.id
+            WHERE q.notebook_id = ? AND substr(qa.timestamp, 1, 10) >= ?
+            GROUP BY day
+            ORDER BY day
+            """,
+            (notebook_id, date_range[0]),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT
+                substr(timestamp, 1, 10) as day,
+                COUNT(*) as attempts,
+                SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct
+            FROM quiz_attempts
+            WHERE substr(timestamp, 1, 10) >= ?
+            GROUP BY day
+            ORDER BY day
+            """,
+            (date_range[0],),
+        ).fetchall()
     conn.close()
 
     daily_map = {row["day"]: {"attempts": row["attempts"], "correct": row["correct"]} for row in rows}

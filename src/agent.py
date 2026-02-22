@@ -156,7 +156,8 @@ def rag_answer(
         history_text = format_chat_history(messages)
 
         # Also check for relevant past sessions
-        past_context = get_relevant_history(query)
+        notebook_id = filters.get("notebook_id") if isinstance(filters, dict) else None
+        past_context = get_relevant_history(query, notebook_id=notebook_id)
         if past_context:
             history_text = past_context + "\n\n" + history_text
 

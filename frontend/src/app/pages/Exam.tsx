@@ -1,5 +1,6 @@
-﻿import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
+import { useNotebook } from "../context/NotebookContext";
 import { motion, AnimatePresence } from "motion/react";
 import { 
   ArrowRight, 
@@ -31,23 +32,25 @@ interface Question {
   difficulty: "Easy" | "Medium" | "Hard";
 }
 
-const STORAGE_KEY = "irra_exam_state";
-
-function saveExamState(state: object) {
-  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+function saveExamState(key: string, state: object) {
+  try { sessionStorage.setItem(key, JSON.stringify(state)); } catch {}
 }
-function loadExamState(): any | null {
-  try { const s = sessionStorage.getItem(STORAGE_KEY); return s ? JSON.parse(s) : null; } catch { return null; }
+function loadExamState(key: string): any | null {
+  try { const s = sessionStorage.getItem(key); return s ? JSON.parse(s) : null; } catch { return null; }
 }
-function clearExamState() {
-  try { sessionStorage.removeItem(STORAGE_KEY); } catch {}
+function clearExamState(key: string) {
+  try { sessionStorage.removeItem(key); } catch {}
 }
 
 export default function Exam() {
   const navigate = useNavigate();
+  const { notebook } = useNotebook();
+
+  // Per-notebook session storage key — exam state is isolated per notebook
+  const examStorageKey = notebook?.id ? `irra_exam_state_${notebook.id}` : "irra_exam_state";
 
   // Restore persisted state or use defaults
-  const saved = loadExamState();
+  const saved = loadExamState(examStorageKey);
 
   const [stage, setStage] = useState<"setup" | "quiz" | "results">(saved?.stage ?? "setup");
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState<number>(saved?.currentQuestionIndex ?? 0);
@@ -67,26 +70,29 @@ export default function Exam() {
   // Persist state to sessionStorage whenever key state changes
   useEffect(() => {
     if (stage === "setup") return; // don't persist setup screen
-    saveExamState({
+    saveExamState(examStorageKey, {
       stage, currentQuestionIndex, answers, lockedIn, score,
       questions, examSessionId: examSessionId.current, difficulty, questionCount,
     });
   }, [stage, currentQuestionIndex, answers, lockedIn, score, questions]);
 
   useEffect(() => {
+    setExamStats(null);
     const fetchStats = async () => {
       try {
-        const res = await fetch("http://localhost:8000/api/stats");
+        const nbParam = notebook?.id ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
+        const res = await fetch(`http://localhost:8001/api/stats${nbParam}`);
         if (res.ok) setExamStats((await res.json()).quiz);
       } catch {}
     };
     fetchStats();
-  }, []);
+  }, [notebook?.id]);
 
   const handleStartQuiz = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://localhost:8000/api/quiz/accepted?limit=${questionCount[0]}&difficulty=${difficulty.toLowerCase()}`);
+      const nbParam = notebook?.id ? `&notebook_id=${encodeURIComponent(notebook.id)}` : "";
+      const response = await fetch(`http://localhost:8001/api/quiz/accepted?limit=${questionCount[0]}&difficulty=${difficulty.toLowerCase()}${nbParam}`);
       if (!response.ok) throw new Error("Failed to fetch questions");
       const data = await response.json();
       if (data && data.length > 0) {
@@ -119,7 +125,7 @@ export default function Exam() {
 
   const handleAnswer = (val: string) => {
     const q = questions[currentQuestionIndex];
-    // Already locked in (MCQ/TF) â€” ignore
+    // Already locked in (MCQ/TF) — ignore
     if (q.type !== "short_answer" && lockedIn[q.id]) return;
     setAnswers(prev => ({ ...prev, [q.id]: val }));
     // For MCQ / true_false: lock immediately and show feedback
@@ -135,7 +141,7 @@ export default function Exam() {
       const finalScore = calculateScore();
       submitQuiz(answers, finalScore);
       setStage("results");
-      clearExamState();
+      clearExamState(examStorageKey);
     }
   };
 
@@ -152,7 +158,7 @@ export default function Exam() {
     const attemptPromises = questions.map(q => {
       const userAnswer = finalAnswers[q.id] || "";
       const isCorrect = q.type !== "short_answer" ? userAnswer === q.correctAnswer : false;
-      return fetch("http://localhost:8000/api/quiz/attempt", {
+      return fetch("http://localhost:8001/api/quiz/attempt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -175,7 +181,7 @@ export default function Exam() {
         ? "bg-purple-600/10 border-purple-500"
         : "border-border hover:bg-secondary";
     }
-    // locked â€” show right/wrong
+    // locked — show right/wrong
     if (opt === q.correctAnswer) return "bg-green-500/15 border-green-500 text-green-300";
     if (opt === userAnswer && opt !== q.correctAnswer) return "bg-red-500/15 border-red-500 text-red-300";
     return "border-border opacity-50";
@@ -236,7 +242,7 @@ export default function Exam() {
               variant="outline"
               size="sm"
               className="w-full border-border text-muted-foreground hover:text-red-400 hover:border-red-500/40"
-              onClick={() => { clearExamState(); setStage("setup"); setQuestions([]); setAnswers({}); setLockedIn({}); }}
+              onClick={() => { clearExamState(examStorageKey); setStage("setup"); setQuestions([]); setAnswers({}); setLockedIn({}); }}
             >
               Abandon Quiz
             </Button>
@@ -265,17 +271,17 @@ export default function Exam() {
               <div className="grid grid-cols-3 gap-4 w-full max-w-lg mt-8">
                 <div className="p-4 rounded-xl bg-card border border-border backdrop-blur-sm">
                   <Clock className="h-6 w-6 text-blue-500 mx-auto mb-2" />
-                  <div className="text-2xl font-bold text-foreground">{examStats?.accepted ?? "â€”"}</div>
+                  <div className="text-2xl font-bold text-foreground">{examStats?.accepted ?? "—"}</div>
                   <div className="text-xs text-muted-foreground">Available Questions</div>
                 </div>
                 <div className="p-4 rounded-xl bg-card border border-border backdrop-blur-sm">
                   <CheckCircle className="h-6 w-6 text-green-500 mx-auto mb-2" />
-                  <div className="text-2xl font-bold text-foreground">{examStats ? `${Math.round(examStats.accuracy || 0)}%` : "â€”"}</div>
+                  <div className="text-2xl font-bold text-foreground">{examStats ? `${Math.round(examStats.accuracy || 0)}%` : "—"}</div>
                   <div className="text-xs text-muted-foreground">Quiz Accuracy</div>
                 </div>
                 <div className="p-4 rounded-xl bg-card border border-border backdrop-blur-sm">
                   <Award className="h-6 w-6 text-amber-500 mx-auto mb-2" />
-                  <div className="text-2xl font-bold text-foreground">{examStats?.total_attempts ?? "â€”"}</div>
+                  <div className="text-2xl font-bold text-foreground">{examStats?.total_attempts ?? "—"}</div>
                   <div className="text-xs text-muted-foreground">Total Attempts</div>
                 </div>
               </div>
@@ -377,7 +383,7 @@ export default function Exam() {
                           variant="outline"
                           size="sm"
                           className="border-purple-500/40 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 gap-2"
-                          onClick={() => navigate("/chat", { state: { explainMessage } })}
+                          onClick={() => navigate("../chat", { state: { explainMessage } })}
                         >
                           <MessageSquare className="h-3.5 w-3.5" />
                           Explain
