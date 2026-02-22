@@ -7,10 +7,20 @@ import {
   ShieldAlert, 
   CheckCircle,
   FileText,
-  Activity
+  Activity,
+  TrendingUp
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Link } from "react-router";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 const FEATURES = [
   {
@@ -48,6 +58,7 @@ export default function Home() {
     vectorstore: { count: 0 },
     quiz: { accepted: 0, pending: 0, accuracy: 0 }
   });
+  const [perfData, setPerfData] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -60,7 +71,18 @@ export default function Home() {
         console.error("Failed to fetch stats:", error);
       }
     };
+    const fetchPerformance = async () => {
+      try {
+        const res = await fetch("http://localhost:8000/api/quiz/performance?days=14");
+        if (res.ok) {
+          setPerfData(await res.json());
+        }
+      } catch (error) {
+        console.error("Failed to fetch performance:", error);
+      }
+    };
     fetchStats();
+    fetchPerformance();
   }, []);
 
   const STATS_DISPLAY = [
@@ -112,6 +134,89 @@ export default function Home() {
           </motion.div>
         ))}
       </div>
+
+      {/* Quiz Performance Chart */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+      >
+        <Card className="bg-card border-border">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-500">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+              <div>
+                <CardTitle className="text-base text-foreground">Quiz Performance</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">Daily accuracy over the last 14 days</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-2">
+            {perfData.every(d => d.accuracy === null) ? (
+              <div className="h-48 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <FileText className="h-8 w-8 opacity-30" />
+                <p className="text-sm">No quiz attempts yet — complete an exam to see your progress here.</p>
+                <Link to="/exam" className="text-xs text-purple-500 hover:underline mt-1">Go to Exam Mode →</Link>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <AreaChart data={perfData} margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="accuracyGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#a855f7" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={2}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    tickFormatter={(v) => `${v}%`}
+                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                    formatter={(value: any, name: string) => {
+                      if (name === "accuracy") return value !== null ? [`${value}%`, "Accuracy"] : ["—", "Accuracy"];
+                      if (name === "attempts") return [value, "Attempts"];
+                      return [value, name];
+                    }}
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="accuracy"
+                    stroke="#a855f7"
+                    strokeWidth={2}
+                    fill="url(#accuracyGradient)"
+                    dot={(props: any) => {
+                      if (props.payload.accuracy === null) return <g key={props.key} />;
+                      return <circle key={props.key} cx={props.cx} cy={props.cy} r={3} fill="#a855f7" stroke="#fff" strokeWidth={1.5} />;
+                    }}
+                    activeDot={{ r: 5, fill: "#a855f7", stroke: "#fff", strokeWidth: 2 }}
+                    connectNulls={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Features Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-8">

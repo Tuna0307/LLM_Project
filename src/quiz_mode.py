@@ -332,3 +332,49 @@ def get_quiz_stats() -> dict:
         "correct_attempts": correct_attempts,
         "accuracy": (correct_attempts / total_attempts * 100) if total_attempts > 0 else 0,
     }
+
+
+def get_performance_trend(days: int = 14) -> list:
+    """Return daily quiz accuracy trend for the last N days.
+
+    Each entry: {"date": "Feb 20", "accuracy": 75.0, "attempts": 8, "correct": 6}
+    Days with no attempts are included as zeros so the chart line is continuous.
+    """
+    from datetime import date, timedelta
+
+    init_quiz_db()
+    conn = _get_quiz_connection()
+
+    # Build a full date range for the last `days` days
+    today = date.today()
+    date_range = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+
+    # Fetch raw counts grouped by day
+    rows = conn.execute(
+        """
+        SELECT
+            substr(timestamp, 1, 10) as day,
+            COUNT(*) as attempts,
+            SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct
+        FROM quiz_attempts
+        WHERE substr(timestamp, 1, 10) >= ?
+        GROUP BY day
+        ORDER BY day
+        """,
+        (date_range[0],),
+    ).fetchall()
+    conn.close()
+
+    daily_map = {row["day"]: {"attempts": row["attempts"], "correct": row["correct"]} for row in rows}
+
+    result = []
+    for iso_date in date_range:
+        d = date.fromisoformat(iso_date)
+        label = d.strftime("%b %d")
+        data = daily_map.get(iso_date, {"attempts": 0, "correct": 0})
+        attempts = data["attempts"]
+        correct = data["correct"]
+        accuracy = round(correct / attempts * 100, 1) if attempts > 0 else None
+        result.append({"date": label, "accuracy": accuracy, "attempts": attempts, "correct": correct})
+
+    return result

@@ -19,7 +19,8 @@ from src.quiz_mode import (
     review_question,
     get_quiz_stats,
     get_accepted_questions,
-    record_attempt
+    record_attempt,
+    get_performance_trend
 )
 
 app = FastAPI(title="IRRA API", description="Intelligent RAG Revision Assistant API")
@@ -181,6 +182,14 @@ def api_review_question(question_id: int, request: ReviewQuizRequest):
             edited_data=request.edited_data
         )
         return {"message": f"Question {question_id} reviewed successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/quiz/performance")
+def api_get_performance_trend(days: int = 14):
+    """Return daily quiz accuracy trend for the last N days."""
+    try:
+        return get_performance_trend(days=days)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
