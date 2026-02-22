@@ -9,8 +9,8 @@ import tempfile
 # Import existing logic
 from src.agent import handle_query
 from src.memory import create_session, get_all_sessions, get_session_messages_full, delete_session
-from src.ingest import load_and_process_pdf
-from src.vectorstore import add_documents, get_collection_stats, get_document_metadata_values, get_uploaded_documents
+from src.ingest import load_and_process_file, SUPPORTED_EXTENSIONS
+from src.vectorstore import add_documents, get_collection_stats, get_document_metadata_values, get_uploaded_documents, delete_documents_by_source
 from src.retriever import rebuild_bm25_index
 from src.quiz_mode import (
     generate_questions,
@@ -20,7 +20,9 @@ from src.quiz_mode import (
     get_quiz_stats,
     get_accepted_questions,
     record_attempt,
-    get_performance_trend
+    get_performance_trend,
+    delete_question_by_id,
+    delete_questions_by_source as delete_quiz_questions_by_source,
 )
 
 app = FastAPI(title="IRRA API", description="Intelligent RAG Revision Assistant API")
@@ -51,6 +53,7 @@ class ChatResponse(BaseModel):
 class GenerateQuizRequest(BaseModel):
     topic: Optional[str] = None
     num_questions: int = 5
+    question_type: Optional[str] = None  # "mcq", "true_false", "open_ended", or None for mixed
 
 class ReviewQuizRequest(BaseModel):
     action: str # "accept", "reject", "edit"
@@ -129,15 +132,27 @@ async def upload_notes(
         extra_metadata["week"] = week
 
     all_chunks = []
-    
+
     for file in files:
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        # Preserve the original file extension so the loader can detect the format
+        original_ext = os.path.splitext(file.filename or "")[1].lower() or ".tmp"
+        if original_ext not in SUPPORTED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{original_ext}' for '{file.filename}'. "
+                       f"Supported: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
+            )
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=original_ext) as tmp:
             tmp.write(await file.read())
             tmp_path = tmp.name
 
         try:
-            chunks = load_and_process_pdf(tmp_path, extra_metadata)
+            # Delete any existing chunks for this file so re-uploads don't duplicate
+            deleted = delete_documents_by_source(file.filename)
+            if deleted:
+                print(f"[REPLACE] Replaced {deleted} existing chunks for '{file.filename}'")
+            chunks = load_and_process_file(tmp_path, extra_metadata, original_filename=file.filename)
             all_chunks.extend(chunks)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Error processing {file.filename}: {str(e)}")
@@ -155,14 +170,20 @@ async def upload_notes(
 # 3. Quiz Endpoints
 @app.post("/api/quiz/generate")
 def api_generate_questions(request: GenerateQuizRequest):
-    questions = generate_questions(
-        topic=request.topic,
-        num_questions=request.num_questions
-    )
-    if questions:
-        saved = save_generated_questions(questions)
-        return {"message": f"Generated and saved {saved} questions.", "count": saved}
-    raise HTTPException(status_code=400, detail="Could not generate questions.")
+    try:
+        questions = generate_questions(
+            topic=request.topic,
+            num_questions=request.num_questions,
+            question_type=request.question_type
+        )
+        if questions:
+            saved = save_generated_questions(questions)
+            return {"message": f"Generated and saved {saved} questions.", "count": saved}
+        raise HTTPException(status_code=400, detail="Could not generate questions. No chunks retrieved from vectorstore — make sure you have uploaded and indexed documents first.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Quiz generation error: {str(e)}")
 
 @app.get("/api/quiz/pending")
 def api_get_pending_questions():
@@ -206,6 +227,21 @@ def api_record_attempt(request: RecordAttemptRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/api/documents/{filename:path}")
+def api_delete_document(filename: str):
+    """Delete all indexed chunks for a given source file, and its related questions."""
+    try:
+        deleted_chunks = delete_documents_by_source(filename)
+        deleted_questions = delete_quiz_questions_by_source(filename)
+        rebuild_bm25_index()
+        return {
+            "message": f"Deleted {deleted_chunks} chunks and {deleted_questions} questions for '{filename}'.",
+            "deleted_chunks": deleted_chunks,
+            "deleted_questions": deleted_questions
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # 4. Metadata Endpoint
 @app.get("/api/documents/metadata")
 def api_get_document_metadata():
@@ -224,6 +260,19 @@ def api_get_uploaded_documents():
         return []
 
 # 5. Stats Endpoints
+@app.delete("/api/questions/{question_id}")
+def api_delete_question(question_id: int):
+    """Permanently delete a question from the question bank."""
+    try:
+        deleted = delete_question_by_id(question_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Question not found.")
+        return {"message": f"Question {question_id} deleted."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/stats")
 def api_get_stats():
     try:

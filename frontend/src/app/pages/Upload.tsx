@@ -6,7 +6,8 @@ import {
   X, 
   CheckCircle, 
   Database,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -23,6 +24,7 @@ export default function Upload() {
   const [files, setFiles] = useState<File[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [progressLabel, setProgressLabel] = useState("");
   const [uploadComplete, setUploadComplete] = useState(false);
   
   const [topic, setTopic] = useState("");
@@ -40,6 +42,22 @@ export default function Upload() {
       // backend not running
     } finally {
       setIsLoadingDocs(false);
+    }
+  };
+
+  const handleDeleteDocument = async (filename: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/documents/${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        toast.success(`Deleted "${filename}" from index.`);
+        fetchIndexedDocs();
+      } else {
+        toast.error("Failed to delete document.");
+      }
+    } catch {
+      toast.error("Could not reach backend.");
     }
   };
 
@@ -85,7 +103,8 @@ export default function Upload() {
     if (files.length === 0) return;
     
     setIsProcessing(true);
-    setProgress(10); // Start progress
+    setProgress(5);
+    setProgressLabel("Uploading files...");
     setUploadComplete(false);
     
     try {
@@ -97,10 +116,17 @@ export default function Upload() {
       if (topic) formData.append("topic", topic);
       if (docType) formData.append("doc_type", docType);
 
-      // Simulate progress while waiting for the real API
+      // Progress simulation — embedding batches take ~15s each so we pace slowly
       const progressInterval = setInterval(() => {
-        setProgress(prev => prev < 90 ? prev + 5 : prev);
-      }, 500);
+        setProgress(prev => {
+          const next = prev < 88 ? prev + 1 : prev;
+          if (next < 20) setProgressLabel("Extracting & cleaning text...");
+          else if (next < 50) setProgressLabel("Generating embeddings (batching with rate limits)...");
+          else if (next < 80) setProgressLabel("Indexing into vector store...");
+          else setProgressLabel("Almost done — finalising index...");
+          return next;
+        });
+      }, 1200); // 1.2s per tick → reaches 88% in ~100s, matching real embed time
 
       const response = await fetch("http://localhost:8000/api/upload", {
         method: "POST",
@@ -115,6 +141,7 @@ export default function Upload() {
 
       const data = await response.json();
       setProgress(100);
+      setProgressLabel("Complete!");
       setUploadComplete(true);
       toast.success(data.message || "Files processed successfully!");
       fetchIndexedDocs(); // refresh the file history
@@ -122,6 +149,7 @@ export default function Upload() {
       console.error("Upload error:", error);
       toast.error("Failed to process files. Please try again.");
       setProgress(0);
+      setProgressLabel("");
     } finally {
       setIsProcessing(false);
     }
@@ -162,7 +190,7 @@ export default function Upload() {
                   multiple
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                   onChange={handleChange}
-                  accept=".pdf"
+                  accept=".pdf,.docx,.pptx,.txt,.md,.markdown,.html,.htm,.csv"
                 />
                 
                 <div className="flex flex-col items-center gap-4">
@@ -178,7 +206,7 @@ export default function Upload() {
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Supported: PDF only (Max 50MB)
+                    Supported: PDF, Word, PowerPoint, TXT, MD, HTML, CSV (Max 50MB)
                   </p>
                 </div>
               </div>
@@ -245,7 +273,7 @@ export default function Upload() {
                   >
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">
-                        {uploadComplete ? "Processing Complete" : "Processing & Indexing..."}
+                        {uploadComplete ? "Processing Complete" : progressLabel || "Processing & Indexing..."}
                       </span>
                       <span className="text-primary font-medium">{progress}%</span>
                     </div>
@@ -383,7 +411,7 @@ export default function Upload() {
                     <p className="text-sm font-medium text-foreground truncate">{doc.source_file}</p>
                     <p className="text-xs text-muted-foreground">{doc.chunk_count} chunks indexed</p>
                   </div>
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex gap-2 shrink-0 items-center">
                     {doc.topic && (
                       <Badge variant="outline" className="text-xs border-border text-muted-foreground">
                         {doc.topic}
@@ -402,6 +430,13 @@ export default function Upload() {
                     >
                       {doc.doc_type || "lecture"}
                     </Badge>
+                    <button
+                      onClick={() => handleDeleteDocument(doc.source_file)}
+                      className="ml-1 p-1 rounded text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                      title="Delete from index"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </motion.div>
               ))}

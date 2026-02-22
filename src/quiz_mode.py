@@ -10,6 +10,7 @@ Author: Delvin (Feature Engineering)
 """
 import os
 import json
+import random
 import sqlite3
 from datetime import datetime
 from typing import Optional
@@ -77,6 +78,7 @@ def init_quiz_db():
 def generate_questions(
     topic: Optional[str] = None,
     num_questions: int = None,
+    question_type: Optional[str] = None,
     filters: Optional[dict] = None,
 ) -> list[dict]:
     """
@@ -108,17 +110,28 @@ def generate_questions(
     with open(prompt_path, "r", encoding="utf-8") as f:
         prompt_template = f.read()
 
+    type_instructions = {
+        "mcq": "Generate ONLY Multiple Choice Questions (MCQ). Each must have exactly 4 options (A-D) with one correct answer.",
+        "true_false": "Generate ONLY True/False questions. Each question must be a clear statement the student marks as True or False.",
+        "open_ended": "Generate ONLY Open Ended / Short Answer questions. No options are needed — students write their own answer.",
+    }
+    question_type_instruction = type_instructions.get(
+        question_type or "",
+        "Create a MIX of question types: Multiple Choice (MCQ), Short Answer, and True/False."
+    )
+
     prompt = prompt_template.format(
         num_questions=num_questions,
         context=context_text,
         topic=topic or "All topics from the provided context",
+        question_type_instruction=question_type_instruction,
     )
 
     # Generate questions
     llm = ChatGoogleGenerativeAI(
         model=config.LLM_MODEL,
         temperature=0.5,  # Slightly higher temp for variety
-        max_output_tokens=2048,
+        max_output_tokens=8192,
         google_api_key=config.GOOGLE_API_KEY,
     )
 
@@ -133,16 +146,44 @@ def generate_questions(
         questions = json.loads(content)
 
         if isinstance(questions, list):
-            # Also fill in citation from retrieval metadata if missing
+            labels = ["A", "B", "C", "D"]
             for q in questions:
+                # Fill in citation if missing
                 if not q.get("source_doc"):
                     citation = extract_citation_for_quiz(chunks[0].metadata)
                     q["source_doc"] = citation["source_doc"]
                     q["source_page"] = citation["source_page"]
 
+                # Shuffle MCQ options so correct answer isn't always B/C
+                if q.get("type") == "mcq" and isinstance(q.get("options"), list) and len(q["options"]) > 1:
+                    # Strip existing letter prefix (e.g. "A) text" -> "text")
+                    stripped = []
+                    correct_letter = str(q.get("correct_answer", "")).strip().rstrip(")").strip()
+                    correct_idx = None
+                    for i, opt in enumerate(q["options"]):
+                        # Option may look like "A) Some text" or just "Some text"
+                        if len(opt) >= 2 and opt[0].isalpha() and opt[1] in ") .":
+                            stripped.append(opt[2:].strip())
+                        else:
+                            stripped.append(opt.strip())
+                        if labels[i] == correct_letter:
+                            correct_idx = i
+
+                    if correct_idx is not None:
+                        # Shuffle the plain text options
+                        paired = list(enumerate(stripped))
+                        random.shuffle(paired)
+                        new_options = [f"{labels[j]}) {text}" for j, (_, text) in enumerate(paired)]
+                        # Find where the original correct option ended up
+                        new_correct_pos = next(j for j, (orig_i, _) in enumerate(paired) if orig_i == correct_idx)
+                        q["options"] = new_options
+                        q["correct_answer"] = labels[new_correct_pos]
+
             return questions
     except (json.JSONDecodeError, AttributeError) as e:
-        print(f"❌ Failed to parse quiz questions: {e}")
+        print(f"[ERR] Failed to parse quiz questions: {e}")
+        print(f"[ERR] Raw LLM response (first 500 chars): {response.content[:500] if hasattr(response, 'content') else 'N/A'}")
+        raise RuntimeError(f"Failed to parse LLM response as JSON: {e}")
 
     return []
 
@@ -181,14 +222,32 @@ def save_generated_questions(questions: list[dict]) -> int:
             )
             saved += 1
         except Exception as e:
-            print(f"❌ Error saving question: {e}")
+            print(f"[ERR] Error saving question: {e}")
 
     conn.commit()
     conn.close()
     return saved
 
 
-# ── HITL Validation ─────────────────────────────────────────────────────────
+def delete_question_by_id(question_id: int) -> bool:
+    """Permanently delete a single question by ID."""
+    init_quiz_db()
+    conn = _get_quiz_connection()
+    cur = conn.execute("DELETE FROM questions WHERE id = ?", (question_id,))
+    conn.commit()
+    conn.close()
+    return cur.rowcount > 0
+
+
+def delete_questions_by_source(source_doc: str) -> int:
+    """Delete all questions whose source_doc matches the given filename."""
+    init_quiz_db()
+    conn = _get_quiz_connection()
+    cur = conn.execute("DELETE FROM questions WHERE source_doc = ?", (source_doc,))
+    conn.commit()
+    conn.close()
+    return cur.rowcount
+
 
 def get_pending_questions() -> list[dict]:
     """Get all questions pending admin review."""

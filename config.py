@@ -16,7 +16,7 @@ load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 
 # ── LLM Settings ─────────────────────────────────────────────────────────────
-LLM_MODEL = "gemini-2.0-flash"     # Google Gemini free-tier model
+LLM_MODEL = "gemini-2.5-flash"      # Google Gemini model
 LLM_TEMPERATURE = 0.3              # Low temperature for factual accuracy
 LLM_MAX_TOKENS = 1024              # Max tokens per response
 

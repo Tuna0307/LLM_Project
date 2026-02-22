@@ -1,11 +1,13 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useLocation } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { 
   Send, 
   Bot, 
   User, 
   BookOpen, 
-  MoreHorizontal, 
   Trash2,
   Sparkles,
   Search,
@@ -20,6 +22,7 @@ import { ScrollArea } from "../components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Badge } from "../components/ui/badge";
 import { Separator } from "../components/ui/separator";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../components/ui/tooltip";
 
 interface Message {
   id: string;
@@ -48,6 +51,7 @@ const MOCK_MESSAGES: Message[] = [
 ];
 
 export default function Chat() {
+  const location = useLocation();
   const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -122,18 +126,19 @@ export default function Chat() {
     }
   }, [sessionId]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  const handleSend = useCallback(async (overrideText?: string) => {
+    const text = overrideText ?? input;
+    if (!text.trim()) return;
 
     const userMsg: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: input,
+      content: text,
       timestamp: new Date()
     };
 
     setMessages(prev => [...prev, userMsg]);
-    setInput("");
+    if (!overrideText) setInput("");
     setIsTyping(true);
 
     try {
@@ -188,9 +193,30 @@ export default function Chat() {
     } finally {
       setIsTyping(false);
     }
-  };
+  }, [input, topicFilter, sessionId]);
 
-  const handleClearHistory = () => {
+  // Auto-send message when navigated from Exam "Explain" button
+  useEffect(() => {
+    const explainMessage = (location.state as any)?.explainMessage;
+    if (explainMessage) {
+      // Clear the navigation state so refreshing doesn't re-send
+      window.history.replaceState({}, "");
+      // Small delay to let the component finish mounting
+      const timer = setTimeout(() => handleSend(explainMessage), 300);
+      return () => clearTimeout(timer);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleClearHistory = async () => {
+    if (sessionId) {
+      try {
+        await fetch(`http://localhost:8000/api/sessions/${sessionId}`, { method: "DELETE" });
+        setSessions(prev => prev.filter(s => s.session_id !== sessionId));
+      } catch {
+        // fail silently
+      }
+    }
     setMessages([{
       id: Date.now().toString(),
       role: "ai",
@@ -262,12 +288,9 @@ export default function Chat() {
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
-            <MoreHorizontal className="h-5 w-5" />
-          </Button>
         </div>
 
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="flex-1 min-h-0 p-4">
           <div className="space-y-6 max-w-3xl mx-auto">
             {messages.map((msg) => (
               <motion.div
@@ -292,7 +315,28 @@ export default function Chat() {
                       : "bg-muted/50 border border-border text-foreground rounded-tl-sm backdrop-blur-md"
                     }
                   `}>
-                    {msg.content}
+                    {msg.role === "user" ? msg.content : (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({children}) => <h1 className="text-base font-bold mt-3 mb-1 first:mt-0">{children}</h1>,
+                          h2: ({children}) => <h2 className="text-sm font-bold mt-3 mb-1 first:mt-0">{children}</h2>,
+                          h3: ({children}) => <h3 className="text-sm font-semibold mt-2 mb-1 first:mt-0 text-primary/90">{children}</h3>,
+                          p: ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
+                          ul: ({children}) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                          ol: ({children}) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                          li: ({children}) => <li className="leading-relaxed">{children}</li>,
+                          strong: ({children}) => <strong className="font-semibold text-foreground">{children}</strong>,
+                          em: ({children}) => <em className="italic">{children}</em>,
+                          code: ({children}) => <code className="bg-background/60 px-1 py-0.5 rounded text-xs font-mono border border-border/50">{children}</code>,
+                          pre: ({children}) => <pre className="bg-background/60 p-3 rounded-lg border border-border/50 overflow-x-auto text-xs mb-2">{children}</pre>,
+                          hr: () => <hr className="border-border/50 my-3" />,
+                          blockquote: ({children}) => <blockquote className="border-l-2 border-primary/40 pl-3 italic text-muted-foreground my-2">{children}</blockquote>,
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
+                    )}
                     
                     {msg.citations && (
                       <div className="mt-4 pt-3 border-t border-border/50 space-y-2">
@@ -437,41 +481,48 @@ export default function Chat() {
             </button>
           </div>
           <CardContent className="p-0 pb-4">
-            <ScrollArea className="h-56">
-              <div className="px-3 space-y-1">
-                {isLoadingSessions ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">Loading...</p>
-                ) : sessions.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">No past conversations yet.</p>
-                ) : (
-                  sessions.map((s) => (
+            <div className="h-56 overflow-y-auto overflow-x-hidden px-3 space-y-1">
+              {isLoadingSessions ? (
+                <p className="text-xs text-muted-foreground text-center py-6">Loading...</p>
+              ) : sessions.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-6">No past conversations yet.</p>
+              ) : (
+                sessions.map((s) => (
+                  <TooltipProvider key={s.session_id} delayDuration={300}>
                     <div
-                      key={s.session_id}
-                      className={`group flex items-start gap-2 p-2.5 rounded-lg cursor-pointer transition-all ${
+                      className={`group flex items-center gap-2 p-2.5 rounded-lg cursor-pointer transition-all min-w-0 ${
                         sessionId === s.session_id
                           ? "bg-primary/10 border border-primary/30"
                           : "hover:bg-secondary border border-transparent"
                       }`}
                       onClick={() => handleLoadSession(s.session_id)}
                     >
-                      <Clock className="h-3.5 w-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">{s.preview}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {new Date(s.updated_at).toLocaleDateString()} · {s.message_count} msgs
-                        </p>
-                      </div>
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-foreground truncate">{s.preview}</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                              {new Date(s.updated_at).toLocaleDateString()} · {s.message_count} msgs
+                            </p>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="left" className="max-w-[220px] text-xs">
+                          {s.preview}
+                        </TooltipContent>
+                      </Tooltip>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteSession(s.session_id); }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-500 text-muted-foreground transition-all"
+                        className="shrink-0 p-1 rounded text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all"
+                        title="Delete conversation"
                       >
-                        <Trash2 className="h-3 w-3" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                  ))
-                )}
-              </div>
-            </ScrollArea>
+                  </TooltipProvider>
+                ))
+              )}
+            </div>
           </CardContent>
         </Card>
 

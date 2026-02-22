@@ -4,7 +4,7 @@ You are an exam question generator for SIT course materials.
 Generate {num_questions} practice questions based ONLY on the following context from lecture materials.
 
 ## Rules
-1. Create a MIX of question types: Multiple Choice (MCQ), Short Answer, and True/False.
+1. {question_type_instruction}
 2. Questions should test UNDERSTANDING, not just memorization. Use Bloom's taxonomy levels: Apply, Analyze, Evaluate.
 3. For MCQ: provide 4 options (A-D). Make distractors plausible but clearly wrong — avoid "obviously wrong" options.
 4. Every question MUST include the source document and page number.

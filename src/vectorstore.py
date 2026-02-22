@@ -76,7 +76,7 @@ def add_documents(
     import time
 
     if not documents:
-        print("⚠️  No documents to add.")
+        print("[WARN] No documents to add.")
         return 0
 
     vectorstore = get_vectorstore(collection_name)
@@ -97,22 +97,22 @@ def add_documents(
             try:
                 vectorstore.add_documents(batch)
                 total_added += len(batch)
-                print(f"   📦 Batch {batch_num}/{total_batches} ({total_added}/{len(documents)} docs)")
+                print(f"   [>>] Batch {batch_num}/{total_batches} ({total_added}/{len(documents)} docs)")
                 break
             except Exception as e:
                 if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                     wait_time = 60 * (attempt + 1)  # 60s, 120s, 180s
-                    print(f"   ⏳ Rate limited — waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
+                    print(f"   [WAIT] Rate limited - waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
                     time.sleep(wait_time)
                 else:
                     raise  # Re-raise non-rate-limit errors
 
         # Delay between batches to stay under rate limit (skip after last batch)
         if i + batch_size < len(documents):
-            print(f"   ⏳ Waiting 15s to respect rate limits...")
+            print(f"   [WAIT] Waiting 15s to respect rate limits...")
             time.sleep(15)
 
-    print(f"✅ Added {total_added} documents to collection '{collection_name or config.DEFAULT_COLLECTION}'")
+    print(f"[OK] Added {total_added} documents to collection '{collection_name or config.DEFAULT_COLLECTION}'")
     return total_added
 
 
@@ -282,8 +282,36 @@ def delete_collection(collection_name: str) -> bool:
     client = chromadb.PersistentClient(path=config.CHROMA_PERSIST_DIR)
     try:
         client.delete_collection(collection_name)
-        print(f"🗑️  Deleted collection '{collection_name}'")
+        print(f"[DEL] Deleted collection '{collection_name}'")
         return True
     except Exception as e:
-        print(f"❌ Error deleting collection: {e}")
+        print(f"[ERR] Error deleting collection: {e}")
         return False
+
+
+def delete_documents_by_source(
+    source_file: str,
+    collection_name: Optional[str] = None,
+) -> int:
+    """
+    Delete all chunks whose metadata source_file matches the given filename.
+
+    Returns:
+        Number of chunks deleted.
+    """
+    if collection_name is None:
+        collection_name = config.DEFAULT_COLLECTION
+
+    client = chromadb.PersistentClient(path=config.CHROMA_PERSIST_DIR)
+    try:
+        col = client.get_collection(collection_name)
+    except Exception:
+        return 0  # collection doesn't exist yet
+
+    # Fetch IDs of all chunks matching this source file
+    results = col.get(where={"source_file": source_file})
+    ids = results.get("ids", [])
+    if ids:
+        col.delete(ids=ids)
+        print(f"[DEL] Deleted {len(ids)} chunks for '{source_file}'")
+    return len(ids)

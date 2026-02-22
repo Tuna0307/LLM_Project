@@ -47,7 +47,7 @@ class BM25Index:
             # Build BM25 index
             tokenized_docs = [doc.page_content.lower().split() for doc in self.documents]
             self.bm25 = BM25Okapi(tokenized_docs)
-            print(f"📊 BM25 index built with {len(self.documents)} documents")
+            print(f"[OK] BM25 index built with {len(self.documents)} documents")
 
     def search(self, query: str, k: int = 10) -> list[Document]:
         """Search using BM25 keyword matching."""
@@ -147,7 +147,7 @@ def rerank_documents(
         return [doc for doc, _ in scored_docs[:top_k]]
 
     except Exception as e:
-        print(f"⚠️  Reranker unavailable ({e}), using original ranking")
+        print(f"[WARN] Reranker unavailable ({e}), using original ranking")
         return documents[:top_k]
 
 

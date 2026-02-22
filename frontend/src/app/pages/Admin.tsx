@@ -5,7 +5,7 @@ import {
   Edit3, 
   Plus, 
   Search, 
-  MoreHorizontal,
+  Trash2,
   FileText,
   Activity,
   AlertCircle,
@@ -40,7 +40,7 @@ import {
 } from "../components/ui/table";
 import { toast } from "sonner";
 
-export default function Admin() {
+export default function Settings() {
   const [pending, setPending] = useState<any[]>([]);
   const [accepted, setAccepted] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({
@@ -51,6 +51,7 @@ export default function Admin() {
   });
   const [genTopic, setGenTopic] = useState("");
   const [genCount, setGenCount] = useState(5);
+  const [genType, setGenType] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
@@ -70,8 +71,8 @@ export default function Admin() {
         setStats(data.quiz);
       }
     } catch (error) {
-      console.error("Error fetching admin data:", error);
-      toast.error("Failed to load admin data");
+      console.error("Error fetching settings data:", error);
+      toast.error("Failed to load settings data");
     }
   };
 
@@ -121,7 +122,7 @@ export default function Admin() {
       const res = await fetch("http://localhost:8000/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: genTopic || null, num_questions: genCount })
+        body: JSON.stringify({ topic: genTopic || null, num_questions: genCount, question_type: genType })
       });
       if (res.ok) {
         const data = await res.json();
@@ -146,6 +147,21 @@ export default function Admin() {
       difficulty: q.difficulty || "medium",
       options: q.options ? (typeof q.options === "string" ? JSON.parse(q.options) : q.options) : [],
     });
+  };
+
+  const handleDeleteQuestion = async (id: number) => {
+    if (!confirm("Delete this question permanently?")) return;
+    try {
+      const res = await fetch(`http://localhost:8000/api/questions/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        toast.success("Question deleted");
+        fetchData();
+      } else {
+        throw new Error();
+      }
+    } catch {
+      toast.error("Failed to delete question");
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -366,6 +382,25 @@ export default function Admin() {
                 />
               </div>
               <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Question Type</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {([{ value: null, label: "Mixed" }, { value: "mcq", label: "MCQ" }, { value: "true_false", label: "True / False" }, { value: "open_ended", label: "Open Ended" }] as { value: string | null; label: string }[]).map(({ value, label }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setGenType(value)}
+                      className={`rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
+                        genType === value
+                          ? "border-purple-500 bg-purple-500/20 text-purple-300"
+                          : "border-border bg-background text-muted-foreground hover:border-purple-500/50 hover:text-foreground"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Count</label>
                 <Input 
                   type="number"
@@ -446,9 +481,26 @@ export default function Admin() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => handleEdit(q)}
+                        title="Edit"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-red-500"
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
