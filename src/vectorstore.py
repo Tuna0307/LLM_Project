@@ -14,17 +14,18 @@ from typing import Optional
 
 import chromadb
 from langchain_chroma import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
 import config
 
 
-def get_embedding_function() -> GoogleGenerativeAIEmbeddings:
-    """Get the embedding function for vectorizing text."""
-    return GoogleGenerativeAIEmbeddings(
-        model=config.EMBEDDING_MODEL,
-        google_api_key=config.GOOGLE_API_KEY,
+def get_embedding_function() -> HuggingFaceEmbeddings:
+    """Get the local embedding function (sentence-transformers, runs on CPU, no API key needed)."""
+    return HuggingFaceEmbeddings(
+        model_name=config.EMBEDDING_MODEL,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
     )
 
 
@@ -63,8 +64,7 @@ def add_documents(
 ) -> int:
     """
     Add documents to the vector store.
-    Uses small batches with delays to respect Google free-tier rate limits
-    (100 embedding requests per minute).
+    Uses local sentence-transformers embeddings — no API rate limits, no delays needed.
 
     Args:
         documents: List of LangChain Document objects (from ingest.py).
@@ -73,47 +73,20 @@ def add_documents(
     Returns:
         Number of documents added.
     """
-    import time
-
     if not documents:
         print("[WARN] No documents to add.")
         return 0
 
     vectorstore = get_vectorstore(collection_name)
 
-    # Small batches + delays to stay within Google's free-tier rate limit
-    # (100 embed requests/min). 20 docs per batch with 15s delay = ~80/min.
-    batch_size = 20
-    total_added = 0
-    total_batches = (len(documents) + batch_size - 1) // batch_size
-
-    for i in range(0, len(documents), batch_size):
-        batch = documents[i : i + batch_size]
-        batch_num = i // batch_size + 1
-
-        # Retry logic for rate-limit (429) errors
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                vectorstore.add_documents(batch)
-                total_added += len(batch)
-                print(f"   [>>] Batch {batch_num}/{total_batches} ({total_added}/{len(documents)} docs)")
-                break
-            except Exception as e:
-                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    wait_time = 60 * (attempt + 1)  # 60s, 120s, 180s
-                    print(f"   [WAIT] Rate limited - waiting {wait_time}s before retry {attempt + 1}/{max_retries}...")
-                    time.sleep(wait_time)
-                else:
-                    raise  # Re-raise non-rate-limit errors
-
-        # Delay between batches to stay under rate limit (skip after last batch)
-        if i + batch_size < len(documents):
-            print(f"   [WAIT] Waiting 15s to respect rate limits...")
-            time.sleep(15)
-
-    print(f"[OK] Added {total_added} documents to collection '{collection_name or config.DEFAULT_COLLECTION}'")
-    return total_added
+    # Embed and add all documents in one go (local model, no rate limits)
+    try:
+        vectorstore.add_documents(documents)
+        print(f"[OK] Added {len(documents)} documents to collection '{collection_name or config.DEFAULT_COLLECTION}'")
+        return len(documents)
+    except Exception as e:
+        print(f"[ERR] Error adding documents: {e}")
+        raise
 
 
 def similarity_search(

@@ -12,7 +12,7 @@ import json
 import os
 from typing import Optional
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.documents import Document
 
 from src.retriever import hybrid_retrieve, rebuild_bm25_index
@@ -35,13 +35,13 @@ def _load_prompt(filename: str) -> str:
         return f.read()
 
 
-def _get_llm(temperature: Optional[float] = None) -> ChatGoogleGenerativeAI:
-    """Get a ChatGoogleGenerativeAI instance."""
-    return ChatGoogleGenerativeAI(
+def _get_llm(temperature: Optional[float] = None) -> ChatGroq:
+    """Get a ChatGroq instance (Llama 4 Scout)."""
+    return ChatGroq(
         model=config.LLM_MODEL,
         temperature=temperature if temperature is not None else config.LLM_TEMPERATURE,
-        max_output_tokens=config.LLM_MAX_TOKENS,
-        google_api_key=config.GOOGLE_API_KEY,
+        max_tokens=config.LLM_MAX_TOKENS,
+        groq_api_key=config.GROQ_API_KEY,
     )
 
 

@@ -4,11 +4,11 @@ import { useNotebook } from "../context/NotebookContext";
 import { motion, AnimatePresence } from "motion/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { 
-  Send, 
-  Bot, 
-  User, 
-  BookOpen, 
+import {
+  Send,
+  Bot,
+  User,
+  BookOpen,
   Trash2,
   Sparkles,
   Search,
@@ -129,7 +129,7 @@ export default function Chat() {
             setMessages(restored);
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [notebook?.id]);
 
@@ -179,7 +179,7 @@ export default function Chat() {
       }
 
       const data = await response.json();
-      
+
       if (data.session_id && !sessionId) {
         setSessionId(data.session_id);
       }
@@ -191,9 +191,9 @@ export default function Chat() {
         role: "ai",
         content: data.answer + (data.citations ? "\n\n" + data.citations : ""),
         timestamp: new Date(),
-        metadata: { 
-          confidence: Math.round(data.confidence * 100), 
-          route: data.route.toUpperCase() 
+        metadata: {
+          confidence: Math.round(data.confidence * 100),
+          route: data.route.toUpperCase()
         }
       };
       setMessages(prev => [...prev, aiMsg]);
@@ -320,12 +320,12 @@ export default function Chat() {
                     <AvatarFallback className="bg-blue-500/20 text-blue-500"><User className="h-5 w-5" /></AvatarFallback>
                   )}
                 </Avatar>
-                
+
                 <div className={`flex flex-col gap-2 max-w-[80%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
                   <div className={`
                     p-4 rounded-2xl shadow-sm text-sm leading-relaxed relative
-                    ${msg.role === "user" 
-                      ? "bg-blue-500 text-white rounded-tr-sm" 
+                    ${msg.role === "user"
+                      ? "bg-blue-500 text-white rounded-tr-sm"
                       : "bg-muted/50 border border-border text-foreground rounded-tl-sm backdrop-blur-md"
                     }
                   `}>
@@ -333,25 +333,25 @@ export default function Chat() {
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          h1: ({children}) => <h1 className="text-base font-bold mt-3 mb-1 first:mt-0">{children}</h1>,
-                          h2: ({children}) => <h2 className="text-sm font-bold mt-3 mb-1 first:mt-0">{children}</h2>,
-                          h3: ({children}) => <h3 className="text-sm font-semibold mt-2 mb-1 first:mt-0 text-primary/90">{children}</h3>,
-                          p: ({children}) => <p className="mb-2 last:mb-0">{children}</p>,
-                          ul: ({children}) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
-                          ol: ({children}) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
-                          li: ({children}) => <li className="leading-relaxed">{children}</li>,
-                          strong: ({children}) => <strong className="font-semibold text-foreground">{children}</strong>,
-                          em: ({children}) => <em className="italic">{children}</em>,
-                          code: ({children}) => <code className="bg-background/60 px-1 py-0.5 rounded text-xs font-mono border border-border/50">{children}</code>,
-                          pre: ({children}) => <pre className="bg-background/60 p-3 rounded-lg border border-border/50 overflow-x-auto text-xs mb-2">{children}</pre>,
+                          h1: ({ children }) => <h1 className="text-base font-bold mt-3 mb-1 first:mt-0">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-sm font-bold mt-3 mb-1 first:mt-0">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-sm font-semibold mt-2 mb-1 first:mt-0 text-primary/90">{children}</h3>,
+                          p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+                          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                          strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                          code: ({ children }) => <code className="bg-background/60 px-1 py-0.5 rounded text-xs font-mono border border-border/50">{children}</code>,
+                          pre: ({ children }) => <pre className="bg-background/60 p-3 rounded-lg border border-border/50 overflow-x-auto text-xs mb-2">{children}</pre>,
                           hr: () => <hr className="border-border/50 my-3" />,
-                          blockquote: ({children}) => <blockquote className="border-l-2 border-primary/40 pl-3 italic text-muted-foreground my-2">{children}</blockquote>,
+                          blockquote: ({ children }) => <blockquote className="border-l-2 border-primary/40 pl-3 italic text-muted-foreground my-2">{children}</blockquote>,
                         }}
                       >
                         {msg.content}
                       </ReactMarkdown>
                     )}
-                    
+
                     {msg.citations && (
                       <div className="mt-4 pt-3 border-t border-border/50 space-y-2">
                         <p className={`text-xs font-semibold flex items-center gap-1 ${msg.role === "user" ? "text-blue-100" : "text-muted-foreground"}`}>
@@ -359,13 +359,13 @@ export default function Chat() {
                         </p>
                         <div className="flex flex-wrap gap-2">
                           {msg.citations.map((cite, idx) => (
-                            <Badge 
-                              key={idx} 
-                              variant="secondary" 
+                            <Badge
+                              key={idx}
+                              variant="secondary"
                               className={`
                                 text-xs py-1 cursor-pointer transition-colors
-                                ${msg.role === "user" 
-                                  ? "bg-white/20 hover:bg-white/30 text-white border-transparent" 
+                                ${msg.role === "user"
+                                  ? "bg-white/20 hover:bg-white/30 text-white border-transparent"
                                   : "bg-background hover:bg-muted text-primary border-border"}
                               `}
                             >
@@ -376,7 +376,7 @@ export default function Chat() {
                       </div>
                     )}
                   </div>
-                  
+
                   {msg.role === "ai" && msg.metadata && (
                     <div className="flex items-center gap-2 px-1">
                       <Badge variant="outline" className="text-[10px] py-0 h-5 border-border text-muted-foreground">
@@ -392,9 +392,9 @@ export default function Chat() {
                 </div>
               </motion.div>
             ))}
-            
+
             {isTyping && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="flex gap-4"
@@ -414,18 +414,18 @@ export default function Chat() {
         </ScrollArea>
 
         <div className="p-4 border-t border-border bg-muted/20">
-          <div className="relative max-w-3xl mx-auto flex gap-3">
+          <div className="relative max-w-3xl mx-auto">
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
               placeholder="Ask a question about your notes..."
-              className="bg-background border-border focus-visible:ring-primary/50 pl-4 pr-12 py-6 text-base shadow-sm"
+              className="bg-background border-border focus-visible:ring-primary/50 pl-4 pr-14 py-6 text-base shadow-sm w-full"
             />
-            <Button 
-              onClick={handleSend}
-              disabled={!input.trim()}
-              className="absolute right-2 top-1.5 h-9 w-9 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg shadow-purple-500/20 text-white"
+            <Button
+              onClick={() => handleSend()}
+              disabled={!input.trim() || isTyping}
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 shadow-lg shadow-purple-500/20 text-white z-10 disabled:opacity-40"
             >
               <Send className="h-4 w-4" />
             </Button>
@@ -456,9 +456,9 @@ export default function Chat() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Topic</label>
-              <Input 
-                placeholder="Filter by topic..." 
-                className="bg-background border-border h-9 text-sm" 
+              <Input
+                placeholder="Filter by topic..."
+                className="bg-background border-border h-9 text-sm"
                 value={topicFilter}
                 onChange={(e) => setTopicFilter(e.target.value)}
                 list="topics-datalist"
@@ -504,11 +504,10 @@ export default function Chat() {
                 sessions.map((s) => (
                   <TooltipProvider key={s.session_id} delayDuration={300}>
                     <div
-                      className={`group flex items-center gap-2 p-2.5 rounded-lg cursor-pointer transition-all min-w-0 ${
-                        sessionId === s.session_id
+                      className={`group flex items-center gap-2 p-2.5 rounded-lg cursor-pointer transition-all min-w-0 ${sessionId === s.session_id
                           ? "bg-primary/10 border border-primary/30"
                           : "hover:bg-secondary border border-transparent"
-                      }`}
+                        }`}
                       onClick={() => handleLoadSession(s.session_id)}
                     >
                       <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />

@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
-import { 
-  BookOpen, 
-  MessageSquare, 
-  UploadCloud, 
-  ShieldAlert, 
+import {
+  BookOpen,
+  MessageSquare,
+  UploadCloud,
+  ShieldAlert,
   CheckCircle,
   FileText,
   Activity,
@@ -62,6 +62,20 @@ export default function Home() {
     quiz: { accepted: 0, pending: 0, accuracy: 0 }
   });
   const [perfData, setPerfData] = useState<any[]>([]);
+  const [isDark, setIsDark] = useState(() =>
+    document.documentElement.classList.contains("dark")
+  );
+
+  // Keep isDark in sync when theme changes
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
+  const tickColor = isDark ? "#94a3b8" : "#64748b";
 
   useEffect(() => {
     // Reset to zero while loading so stale numbers don't flash on notebook switch
@@ -102,14 +116,14 @@ export default function Home() {
   return (
     <div className="space-y-8 h-full overflow-y-auto">
       {/* Hero Section */}
-      <motion.div 
+      <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="text-center py-12 md:py-16 relative"
       >
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[300px] bg-purple-500/20 blur-[100px] rounded-full -z-10" />
-        
+
         <h1 className="text-4xl md:text-6xl font-bold mb-4 bg-gradient-to-r from-purple-600 via-purple-500 to-pink-500 bg-clip-text text-transparent drop-shadow-sm">
           {notebook ? (
             <span className="flex items-center justify-center gap-3">
@@ -184,7 +198,7 @@ export default function Home() {
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{ fontSize: 11, fill: tickColor }}
                     tickLine={false}
                     axisLine={false}
                     interval={2}
@@ -192,7 +206,7 @@ export default function Home() {
                   <YAxis
                     domain={[0, 100]}
                     tickFormatter={(v) => `${v}%`}
-                    tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                    tick={{ fontSize: 11, fill: tickColor }}
                     tickLine={false}
                     axisLine={false}
                   />
@@ -256,7 +270,7 @@ export default function Home() {
                     {feature.description}
                   </p>
                 </CardContent>
-                
+
                 {/* Decorative glow */}
                 <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-purple-500/10 blur-3xl rounded-full group-hover:bg-purple-500/20 transition-all duration-500" />
               </Card>

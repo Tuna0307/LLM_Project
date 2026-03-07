@@ -70,7 +70,7 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 
 - **Python 3.10+**
 - **Node.js 18+**
-- **Google Gemini API key** (free tier) — get one at [Google AI Studio](https://aistudio.google.com/apikey)
+- **Groq API key** (free tier) — get one at [Groq Console](https://console.groq.com/keys)
 
 ### 1. Clone & install dependencies
 
@@ -94,11 +94,13 @@ cd ..
 copy .env.example .env
 ```
 
-Edit `.env` and add your Google Gemini API key:
+Edit `.env` and add your Groq API key:
 
 ```
-GOOGLE_API_KEY=your-google-api-key-here
+GROQ_API_KEY=your-groq-api-key-here
 ```
+
+> Get your free key at **https://console.groq.com/keys**
 
 ### 3. Run the application
 
@@ -201,8 +203,8 @@ LLM_Project/
 
 | Component | Technology |
 |-----------|-----------|
-| **LLM** | Google Gemini 2.5 Flash (free tier) |
-| **Embeddings** | Google Gemini Embedding 001 |
+| **LLM** | Groq — Llama 4 Scout (free tier) |
+| **Embeddings** | sentence-transformers `all-MiniLM-L6-v2` (local, no API key) |
 | **Framework** | LangChain 0.3+ |
 | **Vector Store** | ChromaDB |
 | **Sparse Search** | BM25 (rank-bm25) |

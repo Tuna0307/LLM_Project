@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_core.documents import Document
 
 from src.retriever import hybrid_retrieve
@@ -137,11 +137,11 @@ def generate_questions(
     )
 
     # Generate questions
-    llm = ChatGoogleGenerativeAI(
+    llm = ChatGroq(
         model=config.LLM_MODEL,
         temperature=0.5,  # Slightly higher temp for variety
-        max_output_tokens=8192,
-        google_api_key=config.GOOGLE_API_KEY,
+        max_tokens=8192,
+        groq_api_key=config.GROQ_API_KEY,
     )
 
     response = llm.invoke(prompt)

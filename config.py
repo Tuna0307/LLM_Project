@@ -13,15 +13,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── API Keys ──────────────────────────────────────────────────────────────────
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # ── LLM Settings ─────────────────────────────────────────────────────────────
-LLM_MODEL = "gemini-2.5-flash"      # Google Gemini model
+LLM_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"  # Groq: Llama 4 Scout
 LLM_TEMPERATURE = 0.3              # Low temperature for factual accuracy
 LLM_MAX_TOKENS = 1024              # Max tokens per response
 
 # ── Embedding Settings ───────────────────────────────────────────────────────
-EMBEDDING_MODEL = "models/gemini-embedding-001"  # Google Gemini embedding model
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"  # Local sentence-transformers model (no API key needed)
 
 # ── Chunking Settings ────────────────────────────────────────────────────────
 CHUNK_SIZE = 500                   # Characters per chunk

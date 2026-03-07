@@ -14,7 +14,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 from typing import Optional
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 
 import config
 
@@ -150,10 +150,10 @@ def summarize_session(session_id: str) -> str:
         f"{m['role'].upper()}: {m['content']}" for m in messages
     )
 
-    llm = ChatGoogleGenerativeAI(
+    llm = ChatGroq(
         model=config.LLM_MODEL,
         temperature=0.0,
-        google_api_key=config.GOOGLE_API_KEY,
+        groq_api_key=config.GROQ_API_KEY,
     )
 
     prompt = f"""Summarize the following study conversation in 2-3 sentences.

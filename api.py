@@ -27,6 +27,18 @@ from src.quiz_mode import (
 
 app = FastAPI(title="IRRA API", description="Intelligent RAG Revision Assistant API")
 
+
+@app.on_event("startup")
+async def startup_event():
+    """Pre-warm the local embedding model so the first upload is fast."""
+    import asyncio
+    from src.vectorstore import get_embedding_function
+    print("[STARTUP] Pre-loading embedding model...")
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, get_embedding_function)
+    print("[STARTUP] Embedding model ready.")
+
+
 # Allow CORS for the React frontend
 app.add_middleware(
     CORSMiddleware,
@@ -170,8 +182,10 @@ async def upload_notes(
                 os.unlink(tmp_path)
 
     if all_chunks:
-        added = add_documents(all_chunks)
-        rebuild_bm25_index()
+        import asyncio
+        loop = asyncio.get_event_loop()
+        added = await loop.run_in_executor(None, add_documents, all_chunks)
+        await loop.run_in_executor(None, rebuild_bm25_index)
         return {"message": f"Successfully indexed {added} chunks from {len(files)} files."}
     else:
         return {"message": "No chunks were extracted."}
