@@ -78,15 +78,19 @@ export default function Home() {
   const tickColor = isDark ? "#94a3b8" : "#64748b";
 
   useEffect(() => {
+    if (!notebook?.id) return;
+
+    let ignore = false;
     // Reset to zero while loading so stale numbers don't flash on notebook switch
     setStats({ vectorstore: { count: 0 }, quiz: { accepted: 0, pending: 0, accuracy: 0 } });
     setPerfData([]);
-    const nbParam = notebook?.id ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
+    
     const fetchStats = async () => {
       try {
-        const res = await fetch(`http://localhost:8001/api/stats${nbParam}`);
+        const res = await fetch(`http://localhost:8001/api/stats?notebook_id=${encodeURIComponent(notebook.id)}`);
         if (res.ok) {
-          setStats(await res.json());
+          const data = await res.json();
+          if (!ignore) setStats(data);
         }
       } catch (error) {
         console.error("Failed to fetch stats:", error);
@@ -94,9 +98,10 @@ export default function Home() {
     };
     const fetchPerformance = async () => {
       try {
-        const res = await fetch(`http://localhost:8001/api/quiz/performance?days=14${notebook?.id ? `&notebook_id=${encodeURIComponent(notebook.id)}` : ""}`);
+        const res = await fetch(`http://localhost:8001/api/quiz/performance?days=14&notebook_id=${encodeURIComponent(notebook.id)}`);
         if (res.ok) {
-          setPerfData(await res.json());
+          const data = await res.json();
+          if (!ignore) setPerfData(data);
         }
       } catch (error) {
         console.error("Failed to fetch performance:", error);
@@ -104,6 +109,8 @@ export default function Home() {
     };
     fetchStats();
     fetchPerformance();
+
+    return () => { ignore = true; };
   }, [notebook?.id]);
 
   const STATS_DISPLAY = [
