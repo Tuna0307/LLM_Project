@@ -102,7 +102,24 @@ GOOGLE_API_KEY=your-google-api-key-here
 
 ### 3. Run the application
 
-You will need two terminal windows to run the backend and frontend separately.
+#### ⚡ One-Command Startup (Recommended)
+
+Simply double-click **`start.bat`** in the project root, or run:
+
+```bash
+.\start.bat
+```
+
+This automatically opens two terminal windows — one for the backend and one for the frontend — and launches both simultaneously.
+
+- Backend → **http://localhost:8001**
+- Frontend → **http://localhost:5173**
+
+> To stop the app, just close the two terminal windows that were opened.
+
+#### Manual Startup (Alternative)
+
+If you prefer to run them separately, you will need two terminal windows.
 
 **Terminal 1: Start the FastAPI Backend**
 ```bash
