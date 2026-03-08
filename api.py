@@ -110,6 +110,7 @@ def chat(request: ChatRequest):
             session_id=session_id
         )
     except Exception as e:
+        print(f"[ERROR] Chat processing failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # 1b. Session History Endpoints

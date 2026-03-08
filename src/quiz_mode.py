@@ -9,6 +9,7 @@ Handles:
 Author: Delvin (Feature Engineering)
 """
 import os
+import re
 import json
 import random
 import sqlite3
@@ -150,8 +151,15 @@ def generate_questions(
         # Parse the JSON response
         content = response.content.strip()
         # Handle markdown code blocks
-        if content.startswith("```"):
-            content = content.split("\n", 1)[1].rsplit("```", 1)[0]
+        match = re.search(r'```(?:json)?\s*(.*?)\s*```', content, re.DOTALL)
+        if match:
+            content = match.group(1).strip()
+        else:
+            # 2. Fallback: If the LLM forgot backticks entirely, try to slice from the first [ to the last ]
+            start_idx = content.find('[')
+            end_idx = content.rfind(']')
+            if start_idx != -1 and end_idx != -1:
+                content = content[start_idx:end_idx + 1]
         questions = json.loads(content)
 
         if isinstance(questions, list):

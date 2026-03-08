@@ -16,7 +16,8 @@ from typing import Optional
 
 from rank_bm25 import BM25Okapi
 from langchain_core.documents import Document
-from langchain_google_genai import ChatGoogleGenerativeAI
+#from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 
 from src import vectorstore
 import config
@@ -181,10 +182,11 @@ def generate_sub_queries(query: str) -> list[str]:
     Generate sub-queries for multi-hop retrieval.
     Breaks a complex question into simpler sub-questions.
     """
-    llm = ChatGoogleGenerativeAI(
+    #export GROQ_API_KEY= "GROQ_API_KEY=AIzaSyBHu_5b3quqg9NhYgZsLwknPZCP4uDNxwU"
+    llm = ChatGroq(
         model=config.LLM_MODEL,
         temperature=0.0,
-        google_api_key=config.GOOGLE_API_KEY,
+        groq_api_key=config.GROQ_API_KEY,
     )
 
     prompt = f"""Given the following complex question, generate 2-3 simpler sub-questions
