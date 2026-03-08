@@ -182,7 +182,6 @@ def generate_sub_queries(query: str) -> list[str]:
     Generate sub-queries for multi-hop retrieval.
     Breaks a complex question into simpler sub-questions.
     """
-    #export GROQ_API_KEY= "GROQ_API_KEY=AIzaSyBHu_5b3quqg9NhYgZsLwknPZCP4uDNxwU"
     llm = ChatGroq(
         model=config.LLM_MODEL,
         temperature=0.0,

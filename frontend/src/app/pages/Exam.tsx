@@ -2,13 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useNotebook } from "../context/NotebookContext";
 import { motion, AnimatePresence } from "motion/react";
-import { 
-  ArrowRight, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  Award, 
-  BookOpen, 
+import {
+  ArrowRight,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Award,
+  BookOpen,
   RefreshCw,
   MessageSquare
 } from "lucide-react";
@@ -33,13 +33,13 @@ interface Question {
 }
 
 function saveExamState(key: string, state: object) {
-  try { sessionStorage.setItem(key, JSON.stringify(state)); } catch {}
+  try { sessionStorage.setItem(key, JSON.stringify(state)); } catch { }
 }
 function loadExamState(key: string): any | null {
   try { const s = sessionStorage.getItem(key); return s ? JSON.parse(s) : null; } catch { return null; }
 }
 function clearExamState(key: string) {
-  try { sessionStorage.removeItem(key); } catch {}
+  try { sessionStorage.removeItem(key); } catch { }
 }
 
 export default function Exam() {
@@ -83,10 +83,37 @@ export default function Exam() {
         const nbParam = notebook?.id ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
         const res = await fetch(`http://localhost:8001/api/stats${nbParam}`);
         if (res.ok) setExamStats((await res.json()).quiz);
-      } catch {}
+      } catch { }
     };
     fetchStats();
   }, [notebook?.id]);
+
+  // Shuffle MCQ options on every quiz start so the correct answer isn't
+  // always in the same position as stored in the DB.
+  const shuffleOptions = (q: any): any => {
+    if (q.type !== "mcq" || !q.options?.length) return q;
+    const labels = ["A", "B", "C", "D"];
+    // Pair each option with whether it is the correct one.
+    // correctAnswer is a bare letter like "C"; options look like "C) Some text".
+    const paired = q.options.map((opt: string, i: number) => {
+      const letterMatch = opt.match(/^([A-Da-d])[)\. ]/);
+      const letter = letterMatch ? letterMatch[1].toUpperCase() : labels[i];
+      const text = letterMatch ? opt.slice(2).trim() : opt.trim();
+      return { text, isCorrect: letter === q.correctAnswer.trim().toUpperCase() };
+    });
+    // Fisher-Yates shuffle
+    for (let i = paired.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [paired[i], paired[j]] = [paired[j], paired[i]];
+    }
+    const newOptions = paired.map((p: any, i: number) => `${labels[i]}) ${p.text}`);
+    const newCorrectIdx = paired.findIndex((p: any) => p.isCorrect);
+    return {
+      ...q,
+      options: newOptions,
+      correctAnswer: newCorrectIdx >= 0 ? labels[newCorrectIdx] : q.correctAnswer,
+    };
+  };
 
   const handleStartQuiz = async () => {
     setIsLoading(true);
@@ -96,7 +123,7 @@ export default function Exam() {
       if (!response.ok) throw new Error("Failed to fetch questions");
       const data = await response.json();
       if (data && data.length > 0) {
-        const formattedQuestions = data.map((q: any) => ({
+        const formattedQuestions = data.map((q: any) => shuffleOptions({
           id: q.id,
           text: q.question,
           type: q.type,
@@ -145,10 +172,23 @@ export default function Exam() {
     }
   };
 
+  // Helper: check if a user's answer matches the correct answer.
+  // correctAnswer from the backend is a bare letter ("C"), but the selected
+  // option is the full string ("C) To enhance...").  We extract the letter
+  // prefix from the selected option so the comparison works in both cases.
+  const isAnswerCorrect = (userAnswer: string, correctAnswer: string): boolean => {
+    if (!userAnswer || !correctAnswer) return false;
+    // Extract leading letter prefix: "C) text" -> "C", or use the raw value
+    const letterMatch = userAnswer.match(/^([A-Da-d])[)\. ]/);
+    const normalizedUser = letterMatch ? letterMatch[1].toUpperCase() : userAnswer.trim();
+    const normalizedCorrect = correctAnswer.trim().toUpperCase();
+    return normalizedUser === normalizedCorrect || userAnswer.trim() === correctAnswer.trim();
+  };
+
   const calculateScore = () => {
     let correct = 0;
     questions.forEach(q => {
-      if (q.type !== "short_answer" && answers[q.id] === q.correctAnswer) correct++;
+      if (q.type !== "short_answer" && isAnswerCorrect(answers[q.id], q.correctAnswer)) correct++;
     });
     setScore(correct);
     return correct;
@@ -157,7 +197,7 @@ export default function Exam() {
   const submitQuiz = async (finalAnswers: Record<number, string>, finalScore: number) => {
     const attemptPromises = questions.map(q => {
       const userAnswer = finalAnswers[q.id] || "";
-      const isCorrect = q.type !== "short_answer" ? userAnswer === q.correctAnswer : false;
+      const isCorrect = q.type !== "short_answer" ? isAnswerCorrect(userAnswer, q.correctAnswer) : false;
       return fetch("http://localhost:8001/api/quiz/attempt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -181,9 +221,10 @@ export default function Exam() {
         ? "bg-purple-600/10 border-purple-500"
         : "border-border hover:bg-secondary";
     }
-    // locked — show right/wrong
-    if (opt === q.correctAnswer) return "bg-green-500/15 border-green-500 text-green-300";
-    if (opt === userAnswer && opt !== q.correctAnswer) return "bg-red-500/15 border-red-500 text-red-300";
+    // locked — show right/wrong. correctAnswer is a bare letter (e.g. "C"),
+    // opt is the full string (e.g. "C) Some text..."), so use the helper.
+    if (isAnswerCorrect(opt, q.correctAnswer)) return "bg-green-500/15 border-green-500 text-green-300";
+    if (opt === userAnswer && !isAnswerCorrect(opt, q.correctAnswer)) return "bg-red-500/15 border-red-500 text-red-300";
     return "border-border opacity-50";
   };
 
@@ -315,7 +356,7 @@ export default function Exam() {
                     return (
                       <div className="space-y-3">
                         {opts.map((opt: string) => {
-                          const isCorrect = opt === q.correctAnswer;
+                          const isCorrect = isAnswerCorrect(opt, q.correctAnswer);
                           const isSelected = answers[q.id] === opt;
                           return (
                             <button
@@ -340,9 +381,9 @@ export default function Exam() {
                             <motion.div
                               initial={{ opacity: 0, y: -6 }}
                               animate={{ opacity: 1, y: 0 }}
-                              className={`rounded-lg p-3 text-sm mt-1 ${answers[q.id] === q.correctAnswer ? "bg-green-500/10 border border-green-500/30 text-green-300" : "bg-red-500/10 border border-red-500/30 text-red-300"}`}
+                              className={`rounded-lg p-3 text-sm mt-1 ${isAnswerCorrect(answers[q.id], q.correctAnswer) ? "bg-green-500/10 border border-green-500/30 text-green-300" : "bg-red-500/10 border border-red-500/30 text-red-300"}`}
                             >
-                              {answers[q.id] === q.correctAnswer
+                              {isAnswerCorrect(answers[q.id], q.correctAnswer)
                                 ? <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4" /> Correct!</span>
                                 : <span className="flex items-center gap-1.5"><XCircle className="h-4 w-4" /> Incorrect — the correct answer is: {q.correctAnswer}</span>
                               }
@@ -372,12 +413,12 @@ export default function Exam() {
                       const q = questions[currentQuestionIndex];
                       const userAnswer = answers[q.id];
                       const isShortAnswer = q.type === "short_answer";
-                      const isCorrect = !isShortAnswer && userAnswer === q.correctAnswer;
+                      const isCorrect = !isShortAnswer && isAnswerCorrect(userAnswer, q.correctAnswer);
                       const explainMessage = isShortAnswer
                         ? `I am taking a quiz on this material and was given this open-ended question:\n\n"${q.text}"\n\nI answered: "${userAnswer}"\n\nCan you explain the ideal answer to this question based on the course material?`
                         : isCorrect
-                        ? `I am taking a quiz on this material and was given this question:\n\n"${q.text}"\n\nI chose the correct answer: "${userAnswer}"\n\nCan you help me understand this topic more deeply so I can retain it better?`
-                        : `I am taking a quiz on this material and was given this question:\n\n"${q.text}"\n\nI chose this as my answer: "${userAnswer}"\n\nThat answer was incorrect. The correct answer is "${q.correctAnswer}"\n\nHelp me understand why my answer was incorrect.`;
+                          ? `I am taking a quiz on this material and was given this question:\n\n"${q.text}"\n\nI chose the correct answer: "${userAnswer}"\n\nCan you help me understand this topic more deeply so I can retain it better?`
+                          : `I am taking a quiz on this material and was given this question:\n\n"${q.text}"\n\nI chose this as my answer: "${userAnswer}"\n\nThat answer was incorrect. The correct answer is "${q.correctAnswer}"\n\nHelp me understand why my answer was incorrect.`;
                       return (
                         <Button
                           variant="outline"
@@ -438,7 +479,7 @@ export default function Exam() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl text-left">
                 {questions.map((q: any, i: number) => {
                   const isShortAnswer = q.type === "short_answer";
-                  const isCorrect = !isShortAnswer && answers[q.id] === q.correctAnswer;
+                  const isCorrect = !isShortAnswer && isAnswerCorrect(answers[q.id], q.correctAnswer);
                   return (
                     <Card key={q.id} className={`border-l-4 ${isShortAnswer ? "border-l-amber-400" : isCorrect ? "border-l-green-500" : "border-l-red-500"} bg-card`}>
                       <CardHeader className="p-4 pb-2">
