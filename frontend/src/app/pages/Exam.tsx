@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useNotebook } from "../context/NotebookContext";
 import { motion, AnimatePresence } from "motion/react";
+import { toast } from "sonner";
 import {
   ArrowRight,
   CheckCircle,
@@ -10,7 +11,9 @@ import {
   Award,
   BookOpen,
   RefreshCw,
-  MessageSquare
+  MessageSquare,
+  History,
+  Eye,
 } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -19,6 +22,12 @@ import { Label } from "../components/ui/label";
 import { Progress } from "../components/ui/progress";
 import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
 
 type QuestionType = "mcq" | "short_answer" | "true_false";
 
@@ -67,6 +76,10 @@ export default function Exam() {
   const [difficulty, setDifficulty] = useState<string>(saved?.difficulty ?? "Medium");
   const [questionCount, setQuestionCount] = useState<number[]>(saved?.questionCount ?? [5]);
 
+  // Quiz History
+  const [quizHistory, setQuizHistory] = useState<any[]>([]);
+  const [selectedHistorySession, setSelectedHistorySession] = useState<{ session: any; detail: any[] } | null>(null);
+
   // Persist state to sessionStorage whenever key state changes
   useEffect(() => {
     if (stage === "setup") return; // don't persist setup screen
@@ -78,15 +91,38 @@ export default function Exam() {
 
   useEffect(() => {
     setExamStats(null);
+    setQuizHistory([]);
     const fetchStats = async () => {
       try {
         const nbParam = notebook?.id ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
-        const res = await fetch(`http://localhost:8001/api/stats${nbParam}`);
-        if (res.ok) setExamStats((await res.json()).quiz);
+        const [statsRes, historyRes] = await Promise.all([
+          fetch(`http://localhost:8001/api/stats${nbParam}`),
+          fetch(`http://localhost:8001/api/quiz/sessions${nbParam}`),
+        ]);
+        if (statsRes.ok) setExamStats((await statsRes.json()).quiz);
+        if (historyRes.ok) setQuizHistory(await historyRes.json());
       } catch { }
     };
     fetchStats();
   }, [notebook?.id]);
+
+  const refreshHistory = async () => {
+    try {
+      const nbParam = notebook?.id ? `?notebook_id=${encodeURIComponent(notebook.id)}` : "";
+      const res = await fetch(`http://localhost:8001/api/quiz/sessions${nbParam}`);
+      if (res.ok) setQuizHistory(await res.json());
+    } catch { }
+  };
+
+  const loadSessionDetail = async (session: any) => {
+    try {
+      const res = await fetch(`http://localhost:8001/api/quiz/sessions/${session.session_id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedHistorySession({ session, detail: data });
+      }
+    } catch { }
+  };
 
   // Shuffle MCQ options on every quiz start so the correct answer isn't
   // always in the same position as stored in the DB.
@@ -123,6 +159,13 @@ export default function Exam() {
       if (!response.ok) throw new Error("Failed to fetch questions");
       const data = await response.json();
       if (data && data.length > 0) {
+        // Shortfall notification
+        if (data.length < questionCount[0]) {
+          toast.warning(
+            `Only ${data.length} ${difficulty.toLowerCase()} question${data.length === 1 ? "" : "s"} available — starting with ${data.length} instead of ${questionCount[0]}.`,
+            { duration: 6000 }
+          );
+        }
         const formattedQuestions = data.map((q: any) => shuffleOptions({
           id: q.id,
           text: q.question,
@@ -141,10 +184,10 @@ export default function Exam() {
         setLockedIn({});
         setScore(0);
       } else {
-        alert("No approved questions found for this difficulty. Please generate and approve some in the Settings page first.");
+        toast.error(`No approved ${difficulty.toLowerCase()} questions found. Please generate and approve some in the Settings page first.`);
       }
     } catch (error) {
-      alert("Failed to start quiz. Make sure the backend is running.");
+      toast.error("Failed to start quiz. Make sure the backend is running.");
     } finally {
       setIsLoading(false);
     }
@@ -210,6 +253,20 @@ export default function Exam() {
       }).catch(() => null);
     });
     await Promise.all(attemptPromises);
+    // Refresh history after saving
+    await refreshHistory();
+  };
+
+  // Helper: given options like ["A) text", ...] and a bare letter like "C",
+  // returns the full matching option string, or falls back to the letter.
+  const resolveAnswer = (letter: string, options?: string[]): string => {
+    if (!letter || !options?.length) return letter;
+    const norm = letter.trim().toUpperCase();
+    const match = options.find((opt) => {
+      const m = opt.match(/^([A-Da-d])[)\. ]/);
+      return m ? m[1].toUpperCase() === norm : false;
+    });
+    return match ?? letter;
   };
 
   // Helper: option style for MCQ/TF after locking in
@@ -231,7 +288,8 @@ export default function Exam() {
   return (
     <div className="flex h-full gap-8 max-w-6xl mx-auto items-start">
       {/* Sidebar */}
-      <Card className="w-80 h-fit bg-card border-border backdrop-blur-md hidden md:block">
+      <div className="flex flex-col gap-4 w-80 hidden md:flex shrink-0">
+      <Card className="w-full h-fit bg-card border-border backdrop-blur-md">
         <CardHeader>
           <CardTitle className="text-xl flex items-center gap-2 text-foreground">
             <Award className="text-purple-500" />
@@ -290,6 +348,99 @@ export default function Exam() {
           )}
         </CardContent>
       </Card>
+
+      {/* Quiz History Panel */}
+      <Card className="w-full h-fit bg-card border-border backdrop-blur-md">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2 text-foreground">
+            <History className="h-4 w-4 text-purple-500" />
+            Quiz History
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {quizHistory.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-6 px-4">No past quizzes yet. Complete a quiz to see your history here.</p>
+          ) : (
+            <div className="divide-y divide-border">
+              {quizHistory.map((session) => (
+                <div key={session.session_id} className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate">{session.date}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {session.correct}/{session.total} correct —
+                      <span className={`font-semibold ml-1 ${
+                        session.score_pct >= 80 ? "text-green-500" :
+                        session.score_pct >= 50 ? "text-amber-500" : "text-red-500"
+                      }`}>{session.score_pct}%</span>
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 h-7 px-2 text-xs border-border text-muted-foreground hover:text-foreground"
+                    onClick={() => loadSessionDetail(session)}
+                  >
+                    <Eye className="h-3 w-3 mr-1" /> View
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      </div>{/* End sidebar wrapper */}
+
+      {/* Quiz History Detail Dialog */}
+      <Dialog open={!!selectedHistorySession} onOpenChange={(open) => !open && setSelectedHistorySession(null)}>
+        <DialogContent className="bg-popover border-border text-foreground max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-4 w-4 text-purple-500" />
+              Quiz Session — {selectedHistorySession?.session.date}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedHistorySession && (
+            <div className="space-y-2 overflow-y-auto flex-1 pr-1">
+              <div className="flex items-center gap-3 py-2 border-b border-border mb-3">
+                <span className={`text-2xl font-bold ${
+                  selectedHistorySession.session.score_pct >= 80 ? "text-green-500" :
+                  selectedHistorySession.session.score_pct >= 50 ? "text-amber-500" : "text-red-500"
+                }`}>{selectedHistorySession.session.score_pct}%</span>
+                <span className="text-sm text-muted-foreground">
+                  {selectedHistorySession.session.correct} out of {selectedHistorySession.session.total} correct
+                </span>
+              </div>
+              {selectedHistorySession.detail.map((q: any, i: number) => (
+                <div key={i} className={`rounded-lg p-3 border text-sm ${
+                  q.type === "short_answer"
+                    ? "border-amber-500/20 bg-amber-500/5"
+                    : q.is_correct
+                      ? "border-green-500/20 bg-green-500/5"
+                      : "border-red-500/20 bg-red-500/5"
+                }`}>
+                  <div className="flex items-start gap-2">
+                    {q.type !== "short_answer" && (
+                      q.is_correct
+                        ? <CheckCircle className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
+                        : <XCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />
+                    )}
+                    {q.type === "short_answer" && (
+                      <Badge className="text-xs bg-amber-500/20 text-amber-500 border-transparent hover:bg-amber-500/30 shrink-0">Self-assess</Badge>
+                    )}
+                    <p className="font-medium text-foreground">{i + 1}. {q.question_text}</p>
+                  </div>
+                  <div className="mt-2 ml-6 space-y-0.5 text-xs text-muted-foreground">
+                    <p>Your answer: <span className="text-foreground">{q.user_answer || "—"}</span></p>
+                    {!q.is_correct && q.type !== "short_answer" && (
+                      <p className="text-green-400">Correct answer: {resolveAnswer(q.correct_answer, q.options)}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-[500px]">
@@ -385,7 +536,7 @@ export default function Exam() {
                             >
                               {isAnswerCorrect(answers[q.id], q.correctAnswer)
                                 ? <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4" /> Correct!</span>
-                                : <span className="flex items-center gap-1.5"><XCircle className="h-4 w-4" /> Incorrect — the correct answer is: {q.correctAnswer}</span>
+                                : <span className="flex items-center gap-1.5"><XCircle className="h-4 w-4" /> Incorrect — correct answer: {resolveAnswer(q.correctAnswer, q.options)}</span>
                               }
                             </motion.div>
                           )}
@@ -494,7 +645,7 @@ export default function Exam() {
                         {isShortAnswer && answers[q.id] && (
                           <p className="text-xs text-muted-foreground">Your answer: {answers[q.id]}</p>
                         )}
-                        <p className="text-xs text-muted-foreground mt-1">Correct Answer: {q.correctAnswer}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Correct Answer: {resolveAnswer(q.correctAnswer, q.options)}</p>
                       </CardContent>
                     </Card>
                   );

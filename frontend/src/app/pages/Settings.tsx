@@ -57,6 +57,7 @@ export default function Settings() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingQuestion, setEditingQuestion] = useState<any>(null);
+  const [genCountStr, setGenCountStr] = useState("5");
 
   const fetchData = async () => {
     try {
@@ -130,7 +131,7 @@ export default function Settings() {
       const res = await fetch("http://localhost:8001/api/quiz/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: genTopic || null, num_questions: genCount, question_type: genType, notebook_id: notebook?.id ?? null })
+        body: JSON.stringify({ topic: genTopic || null, num_questions: parseInt(genCountStr) || 5, question_type: genType, notebook_id: notebook?.id ?? null })
       });
       if (res.ok) {
         const data = await res.json();
@@ -186,6 +187,7 @@ export default function Settings() {
             correct_answer: editingQuestion.correct_answer,
             explanation: editingQuestion.explanation,
             difficulty: editingQuestion.difficulty,
+            ...(editingQuestion.options?.length ? { options: editingQuestion.options } : {}),
           },
         }),
       });
@@ -415,8 +417,8 @@ export default function Settings() {
                   min="1"
                   max="20"
                   className="bg-background border-border text-foreground" 
-                  value={genCount}
-                  onChange={(e) => setGenCount(parseInt(e.target.value) || 5)}
+                  value={genCountStr}
+                  onChange={(e) => setGenCountStr(e.target.value)}
                 />
               </div>
               <Button 
@@ -519,12 +521,13 @@ export default function Settings() {
 
       {/* Edit Question Dialog */}
       <Dialog open={!!editingQuestion} onOpenChange={(open) => !open && setEditingQuestion(null)}>
-        <DialogContent className="bg-card border-border text-foreground max-w-lg">
+        <DialogContent className="bg-popover border-border text-foreground max-w-lg max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>Edit Question</DialogTitle>
           </DialogHeader>
           {editingQuestion && (
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto pr-1">
+              {/* Question */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Question</Label>
                 <Textarea
@@ -533,22 +536,82 @@ export default function Settings() {
                   onChange={(e) => setEditingQuestion((prev: any) => ({ ...prev, question: e.target.value }))}
                 />
               </div>
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Correct Answer</Label>
-                <Input
-                  className="bg-background border-border text-foreground"
-                  value={editingQuestion.correct_answer}
-                  onChange={(e) => setEditingQuestion((prev: any) => ({ ...prev, correct_answer: e.target.value }))}
-                />
-              </div>
+
+              {/* MCQ Options — show editable list with radio to pick correct answer */}
+              {editingQuestion.options?.length > 0 ? (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    Options
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">(click the radio button to mark the correct answer)</span>
+                  </Label>
+                  {editingQuestion.options.map((opt: string, idx: number) => {
+                    const labels = ["A", "B", "C", "D"];
+                    const label = labels[idx] ?? String.fromCharCode(65 + idx);
+                    // Strip the "A) " prefix from the stored option to get the bare text
+                    const textPart = opt.replace(/^[A-Da-d][)\. ]\s*/, "");
+                    const isCorrect = editingQuestion.correct_answer?.trim().toUpperCase() === label;
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex items-center gap-3 rounded-lg border p-3 transition-colors ${
+                          isCorrect
+                            ? "border-green-500/50 bg-green-500/10"
+                            : "border-border bg-background hover:border-muted-foreground/50"
+                        }`}
+                      >
+                        {/* Radio to mark correct */}
+                        <input
+                          type="radio"
+                          name="correct_option"
+                          checked={isCorrect}
+                          onChange={() => setEditingQuestion((prev: any) => ({ ...prev, correct_answer: label }))}
+                          className="accent-green-500 shrink-0 cursor-pointer"
+                          title={`Mark ${label} as correct`}
+                        />
+                        {/* Label badge */}
+                        <span className={`text-xs font-bold w-5 shrink-0 ${
+                          isCorrect ? "text-green-400" : "text-muted-foreground"
+                        }`}>{label}</span>
+                        {/* Editable option text */}
+                        <Input
+                          className="flex-1 bg-transparent border-0 shadow-none p-0 h-auto text-sm text-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
+                          value={textPart}
+                          onChange={(e) => {
+                            const updated = [...editingQuestion.options];
+                            updated[idx] = `${label}) ${e.target.value}`;
+                            setEditingQuestion((prev: any) => ({ ...prev, options: updated }));
+                          }}
+                        />
+                        {isCorrect && (
+                          <span className="text-xs text-green-400 shrink-0 font-medium">✓ Correct</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Non-MCQ: plain text correct answer input */
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Correct Answer</Label>
+                  <Input
+                    className="bg-background border-border text-foreground"
+                    value={editingQuestion.correct_answer}
+                    onChange={(e) => setEditingQuestion((prev: any) => ({ ...prev, correct_answer: e.target.value }))}
+                  />
+                </div>
+              )}
+
+              {/* Explanation */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Explanation</Label>
                 <Textarea
-                  className="bg-background border-border text-foreground min-h-[60px]"
+                  className="bg-background border-border text-foreground min-h-[80px]"
                   value={editingQuestion.explanation}
                   onChange={(e) => setEditingQuestion((prev: any) => ({ ...prev, explanation: e.target.value }))}
                 />
               </div>
+
+              {/* Difficulty */}
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Difficulty</Label>
                 <select
@@ -563,7 +626,7 @@ export default function Settings() {
               </div>
             </div>
           )}
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 pt-2">
             <Button variant="outline" className="border-border" onClick={() => setEditingQuestion(null)}>Cancel</Button>
             <Button className="bg-gradient-to-r from-purple-600 to-pink-600 text-white border-0" onClick={handleSaveEdit}>Save & Approve</Button>
           </DialogFooter>

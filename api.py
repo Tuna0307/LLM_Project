@@ -23,6 +23,8 @@ from src.quiz_mode import (
     get_performance_trend,
     delete_question_by_id,
     delete_questions_by_source as delete_quiz_questions_by_source,
+    get_quiz_sessions,
+    get_quiz_session_detail,
 )
 
 app = FastAPI(title="IRRA API", description="Intelligent RAG Revision Assistant API")
@@ -259,6 +261,27 @@ def api_record_attempt(request: RecordAttemptRequest):
             is_correct=request.is_correct
         )
         return {"message": "Attempt recorded."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/quiz/sessions")
+def api_get_quiz_sessions(notebook_id: Optional[str] = None):
+    """Return list of past quiz sessions with summary stats."""
+    try:
+        return get_quiz_sessions(notebook_id=notebook_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/quiz/sessions/{session_id}")
+def api_get_quiz_session_detail(session_id: str):
+    """Return per-question detail for a given quiz session."""
+    try:
+        detail = get_quiz_session_detail(session_id=session_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return detail
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

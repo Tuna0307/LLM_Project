@@ -1,6 +1,6 @@
 # 🎓 IRRA — Intelligent RAG Revision Assistant
 
-An AI-powered study companion for university students, built with **Retrieval-Augmented Generation (RAG)** and **Google Gemini**.
+An AI-powered study companion for university students, built with **Retrieval-Augmented Generation (RAG)** and **Groq (Llama 4 Scout)**.
 
 **Group 12 | AAI3008 Large Language Models**
 
@@ -49,10 +49,10 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 │   │      + Cross-Encoder Reranker       │                   │
 │   └───────────────┬─────────────────────┘                   │
 │                   │                                         │
-│   ┌───────────────▼─────────────────────┐                   │
-│   │       Google Gemini API             │                   │
-│   │  LLM: gemini-2.5-flash              │                   │
-│   │  Embeddings: gemini-embedding-001   │                   │
+│   ┌─────────────────────────────────────┐                   │
+│   │             Groq API               │                   │
+│   │  LLM: llama-4-scout-17b-16e-instruct│                   │
+│   │  Embeddings: all-MiniLM-L6-v2 (local)│                  │
 │   └─────────────────────────────────────┘                   │
 │                                                             │
 │   ┌─────────────────────────────────────┐                   │
@@ -222,8 +222,8 @@ All settings are centralized in `config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `LLM_MODEL` | `gemini-2.5-flash` | Google Gemini model for generation |
-| `EMBEDDING_MODEL` | `models/gemini-embedding-001` | Embedding model |
+| `LLM_MODEL` | `llama-4-scout-17b-16e-instruct` | Groq model for generation |
+| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Local sentence-transformers embedding model |
 | `CHUNK_SIZE` | `500` | Characters per text chunk |
 | `CHUNK_OVERLAP` | `50` | Overlap between chunks |
 | `TOP_K_RETRIEVAL` | `10` | Initial retrieval candidates |
@@ -247,14 +247,14 @@ This project addresses the following advanced directions suggested by the course
 
 ## ⚠️ Rate Limits
 
-Google Gemini's **free tier** has the following limits:
+Groq's **free tier** has the following limits:
 
 | Resource | Limit |
 |----------|-------|
-| LLM requests | 15 requests/minute |
-| Embedding requests | 100 requests/minute |
+| LLM requests | 30 requests/minute |
+| Token throughput | 6,000 tokens/minute (free) |
 
-The upload pipeline includes **automatic rate limiting** (small batches with 15s delays) and **retry logic** for 429 errors.
+Embeddings run **locally** via `sentence-transformers` — no API calls, no rate limits.
 
 ---
 

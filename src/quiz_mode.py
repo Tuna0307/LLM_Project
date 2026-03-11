@@ -504,3 +504,107 @@ def get_performance_trend(days: int = 14, notebook_id: Optional[str] = None) -> 
         result.append({"date": label, "accuracy": accuracy, "attempts": attempts, "correct": correct})
 
     return result
+
+
+def get_quiz_sessions(notebook_id: Optional[str] = None) -> list[dict]:
+    """Return a summary list of past quiz sessions (grouped by session_id).
+
+    Each entry: {session_id, date, total, correct, score_pct}
+    Ordered by most recent first.
+    """
+    init_quiz_db()
+    conn = _get_quiz_connection()
+
+    if notebook_id:
+        rows = conn.execute(
+            """
+            SELECT
+                qa.session_id,
+                MIN(qa.timestamp) as started_at,
+                COUNT(*) as total,
+                SUM(CASE WHEN qa.is_correct = 1 THEN 1 ELSE 0 END) as correct
+            FROM quiz_attempts qa
+            JOIN questions q ON qa.question_id = q.id
+            WHERE q.notebook_id = ?
+            GROUP BY qa.session_id
+            ORDER BY started_at DESC
+            """,
+            (notebook_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT
+                session_id,
+                MIN(timestamp) as started_at,
+                COUNT(*) as total,
+                SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as correct
+            FROM quiz_attempts
+            GROUP BY session_id
+            ORDER BY started_at DESC
+            """
+        ).fetchall()
+
+    conn.close()
+
+    result = []
+    for row in rows:
+        total = row["total"]
+        correct = row["correct"]
+        score_pct = round(correct / total * 100) if total > 0 else 0
+        # Format date nicely
+        from datetime import datetime as dt
+        try:
+            date_label = dt.fromisoformat(row["started_at"]).strftime("%b %d, %Y %H:%M")
+        except Exception:
+            date_label = row["started_at"]
+        result.append({
+            "session_id": row["session_id"],
+            "date": date_label,
+            "total": total,
+            "correct": correct,
+            "score_pct": score_pct,
+        })
+
+    return result
+
+
+def get_quiz_session_detail(session_id: str) -> list[dict]:
+    """Return per-question detail for a given quiz session.
+
+    Each entry: {question_id, question_text, type, user_answer, correct_answer, is_correct}
+    """
+    init_quiz_db()
+    conn = _get_quiz_connection()
+
+    rows = conn.execute(
+        """
+        SELECT
+            qa.question_id,
+            q.question as question_text,
+            q.type,
+            q.correct_answer,
+            q.options,
+            qa.user_answer,
+            qa.is_correct,
+            qa.timestamp
+        FROM quiz_attempts qa
+        JOIN questions q ON qa.question_id = q.id
+        WHERE qa.session_id = ?
+        ORDER BY qa.timestamp ASC
+        """,
+        (session_id,),
+    ).fetchall()
+
+    conn.close()
+    result = []
+    for row in rows:
+        d = dict(row)
+        if d.get("options"):
+            try:
+                d["options"] = json.loads(d["options"])
+            except Exception:
+                d["options"] = None
+        result.append(d)
+    return result
+

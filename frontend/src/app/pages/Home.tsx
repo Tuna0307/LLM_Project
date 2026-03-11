@@ -62,6 +62,7 @@ export default function Home() {
     quiz: { accepted: 0, pending: 0, accuracy: 0 }
   });
   const [perfData, setPerfData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [isDark, setIsDark] = useState(() =>
     document.documentElement.classList.contains("dark")
   );
@@ -81,37 +82,30 @@ export default function Home() {
     if (!notebook?.id) return;
 
     let ignore = false;
-    // Reset to zero while loading so stale numbers don't flash on notebook switch
     setStats({ vectorstore: { count: 0 }, quiz: { accepted: 0, pending: 0, accuracy: 0 } });
     setPerfData([]);
-    
-    const fetchStats = async () => {
-      try {
-        const res = await fetch(`http://localhost:8001/api/stats?notebook_id=${encodeURIComponent(notebook.id)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!ignore) setStats(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch stats:", error);
-      }
-    };
-    const fetchPerformance = async () => {
-      try {
-        const res = await fetch(`http://localhost:8001/api/quiz/performance?days=14&notebook_id=${encodeURIComponent(notebook.id)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!ignore) setPerfData(data);
-        }
-      } catch (error) {
-        console.error("Failed to fetch performance:", error);
-      }
-    };
-    fetchStats();
-    fetchPerformance();
+    setIsLoading(true);
+
+    const nb = encodeURIComponent(notebook.id);
+    Promise.all([
+      fetch(`http://localhost:8001/api/stats?notebook_id=${nb}`),
+      fetch(`http://localhost:8001/api/quiz/performance?days=14&notebook_id=${nb}`),
+    ])
+      .then(async ([statsRes, perfRes]) => {
+        if (ignore) return;
+        if (statsRes.ok) setStats(await statsRes.json());
+        if (perfRes.ok) setPerfData(await perfRes.json());
+      })
+      .catch((err) => console.error("Failed to fetch dashboard data:", err))
+      .finally(() => { if (!ignore) setIsLoading(false); });
 
     return () => { ignore = true; };
   }, [notebook?.id]);
+
+  // Skeleton shimmer component
+  const Skeleton = ({ className }: { className?: string }) => (
+    <div className={`animate-pulse rounded-md bg-muted/60 ${className ?? ""}`} />
+  );
 
   const STATS_DISPLAY = [
     { label: "Indexed Chunks", value: stats.vectorstore?.count || 0, icon: BookOpen, color: "text-emerald-500" },
@@ -146,7 +140,19 @@ export default function Home() {
 
       {/* Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {STATS_DISPLAY.map((stat, index) => (
+        {isLoading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="bg-card border-border">
+                <CardContent className="p-6 flex items-center justify-between">
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-3 w-24" />
+                    <Skeleton className="h-7 w-12" />
+                  </div>
+                  <Skeleton className="h-12 w-12 rounded-xl" />
+                </CardContent>
+              </Card>
+            ))
+          : STATS_DISPLAY.map((stat, index) => (
           <motion.div
             key={stat.label}
             initial={{ opacity: 0, scale: 0.9 }}
@@ -187,7 +193,13 @@ export default function Home() {
             </div>
           </CardHeader>
           <CardContent className="pt-2">
-            {perfData.every(d => d.accuracy === null) ? (
+            {isLoading ? (
+              <div className="h-48 flex flex-col gap-3 justify-end pb-2">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <Skeleton key={i} className={`h-2 rounded-full`} style={{ width: `${60 + Math.random() * 40}%` }} />
+                ))}
+              </div>
+            ) : perfData.every(d => d.accuracy === null) ? (
               <div className="h-48 flex flex-col items-center justify-center gap-2 text-muted-foreground">
                 <FileText className="h-8 w-8 opacity-30" />
                 <p className="text-sm">No quiz attempts yet — complete an exam to see your progress here.</p>
