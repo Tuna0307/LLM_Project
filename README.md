@@ -51,7 +51,7 @@ An AI-powered study companion for university students, built with **Retrieval-Au
 │                   │                                         │
 │   ┌─────────────────────────────────────┐                   │
 │   │             Groq API               │                   │
-│   │  LLM: llama-4-scout-17b-16e-instruct│                   │
+│   │  LLM: meta-llama/llama-4-scout-17b-16e-instruct│        │
 │   │  Embeddings: all-MiniLM-L6-v2 (local)│                  │
 │   └─────────────────────────────────────┘                   │
 │                                                             │
@@ -222,7 +222,7 @@ All settings are centralized in `config.py`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `LLM_MODEL` | `llama-4-scout-17b-16e-instruct` | Groq model for generation |
+| `LLM_MODEL` | `meta-llama/llama-4-scout-17b-16e-instruct` | Groq model for generation |
 | `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Local sentence-transformers embedding model |
 | `CHUNK_SIZE` | `500` | Characters per text chunk |
 | `CHUNK_OVERLAP` | `50` | Overlap between chunks |
@@ -265,7 +265,7 @@ Embeddings run **locally** via `sentence-transformers` — no API calls, no rate
 | Wei Xuan | Data Infrastructure | `ingest.py` |
 | Jay | Storage & Embeddings | `vectorstore.py` |
 | Shunren | Core RAG Logic | `retriever.py`, `agent.py` |
-| Praveen | Frontend Interface | `frontend/src/` |
+| Praveen | Frontend Interface | `frontend/src/`, `memory.py` |
 | Delvin | Feature Engineering | `quiz_mode.py`, `citations.py` |
 
 ---

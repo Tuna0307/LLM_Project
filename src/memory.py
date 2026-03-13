@@ -6,7 +6,7 @@ Handles:
 - Summarizing conversations for long-term recall
 - Retrieving relevant past context when user references prior discussions
 
-Author: Group 12
+Author: Praveen (Frontend Interface)
 """
 import os
 import json
